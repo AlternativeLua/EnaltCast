@@ -1,99 +1,149 @@
 --!strict
 --!optimize 2
 
-if not script:GetActor() and script.Parent ~= nil then
+if not script:GetActor() then
 	return
-else
-	repeat
-		task.wait()
-	until script:GetActor()
 end
 
-local actor = script:GetActor()
-local communicationFolder = actor.Parent:WaitForChild("ActorComm")
-local bulletUpdateEvent = communicationFolder:WaitForChild("BulletUpdate") :: BindableEvent
-local bulletHitEvent = communicationFolder:WaitForChild("BulletHit") :: BindableEvent
+local RunService = game:GetService("RunService")
 
-local activeBullets: { [string]: any } = {}
-local lastHeartbeat = os.clock()
+local actor = script:GetActor() :: Actor
+local module = (script.Parent:WaitForChild("Module") :: ObjectValue).Value :: Instance
+local Settings = require(module:WaitForChild("Settings") :: ModuleScript)
+local Math = require(module:WaitForChild("Math") :: ModuleScript)
 
-local function getPositionAtTime(data: any): Vector3
-	local t = data.time
-	local gravity = data.extraForce
-	local initialVelocity = data.velocity
-	return initialVelocity * t + 0.5 * gravity * t * t
-end
+local holder = script.Parent.Parent
+local hitEvent = holder:WaitForChild("BulletHit") :: BindableEvent
+local endEvent = holder:WaitForChild("BulletEnd") :: BindableEvent
 
-actor:BindToMessageParallel("CastBullet", function(data)
-	activeBullets[data.bulletId] = {
-		bulletId = data.bulletId,
-		origin = data.origin,
-		direction = data.direction,
-		time = data.time or 0,
-		currentPosition = data.currentPosition or data.origin,
-		velocity = data.velocity or ((data :: any).direction * data.speed),
-		speed = data.speed,
-		extraForce = data.extraForce,
-		lifetime = data.lifetime,
-		rayParams = data.rayParams,
+local MAX_FRAME = 0.1
+local hardnessTable: any = Settings.SurfaceHardness
+local bullets: { [number]: any } = {}
+
+actor:BindToMessage("CastBullet", function(p)
+	local params = RaycastParams.new()
+	params.FilterType = p.filterType
+	params.FilterDescendantsInstances = p.filter
+	params.IgnoreWater = p.ignoreWater
+	params.RespectCanCollide = p.respectCanCollide
+	params.CollisionGroup = p.collisionGroup
+
+	bullets[p.bulletId] = {
+		bullet = p.bullet,
+		position = p.origin,
+		velocity = p.velocity,
+		extraForce = p.extraForce,
+		time = p.time or 0,
+		lifetime = p.lifetime,
+		ignoreList = p.filter,
+		rayParams = params,
+		penetrationPower = p.penetrationPower,
+		ricochetAngle = p.ricochetAngle,
+		ricochetHardness = p.ricochetHardness,
+		loss = p.loss,
 	}
 end)
 
-actor:BindToMessageParallel("Heartbeat", function(data)
-	local currentTime = os.clock()
-	local timeSinceUpdate = currentTime - lastHeartbeat
+actor:BindToMessage("Cleanup", function()
+	bullets = {}
+end)
 
-	if timeSinceUpdate < data.updateInterval then
+RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
+	local updates: { any }?, hits: { any }?, ended: { number }?
+	local maxStep = 1 / Settings.UpdateRate
+
+	for id, b in bullets do
+		local force = b.extraForce
+		local remaining = math.min(deltaTime, MAX_FRAME)
+		local stop = false
+
+		while remaining > 0 do
+			local step = math.min(remaining, maxStep)
+			remaining -= step
+			b.time += step
+			b.velocity += force * step
+
+			local from = b.position
+			local to = from + b.velocity * step
+
+			while true do
+				b.rayParams.FilterDescendantsInstances = b.ignoreList
+				local result = workspace:Raycast(from, to - from, b.rayParams)
+				if not result then
+					break
+				end
+
+				local hardness = hardnessTable[result.Material] or hardnessTable.Default
+				local decision = Math.Resolve(
+					result, b.velocity, hardness,
+					b.ricochetAngle, b.ricochetHardness, b.penetrationPower, b.loss
+				)
+
+				hits = hits or {}
+				table.insert(hits, {
+					bulletId = id,
+					type = decision.Type,
+					humanoid = decision.Humanoid,
+					position = result.Position,
+					normal = result.Normal,
+					instance = result.Instance,
+					material = result.Material,
+					distance = result.Distance,
+				})
+
+				if decision.Type == "Penetration" then
+					b.penetrationPower -= (decision.Cost :: number)
+					table.insert(b.ignoreList, result.Instance)
+					from = result.Position
+				elseif decision.Type == "Ricochet" then
+					b.velocity = (decision.Velocity :: Vector3)
+					b.position = result.Position
+					to = result.Position
+					break
+				else
+					to = result.Position
+					stop = true
+					break
+				end
+			end
+
+			b.position = to
+			if stop or b.time >= b.lifetime then
+				stop = true
+				break
+			end
+		end
+
+		if b.bullet then
+			local v = b.velocity
+			local facing = if v.Magnitude > 0 then v.Unit else -Vector3.zAxis
+			updates = updates or {}
+			table.insert(updates, b.bullet)
+			table.insert(updates, CFrame.lookAlong(b.position, facing))
+		end
+
+		if stop then
+			ended = ended or {}
+			table.insert(ended, id)
+			bullets[id] = nil
+		end
+	end
+
+	if not (updates or hits or ended) then
 		return
 	end
 
-	for bulletId, bulletData in activeBullets do
-		local displacement = getPositionAtTime(bulletData)
-		local projectilePosition = bulletData.currentPosition + displacement
+	task.synchronize()
 
-		local velocity = bulletData.velocity + bulletData.extraForce * bulletData.time
-		local lookVector = velocity.Magnitude > 0 and velocity.Unit or Vector3.new(0, 0, -1)
-
-		local rayResult = workspace:Raycast(
-			bulletData.currentPosition,
-			projectilePosition - bulletData.currentPosition,
-			bulletData.rayParams
-		)
-
-		local destroy = false
-		local cframe = CFrame.new(projectilePosition, projectilePosition + lookVector)
-
-		if rayResult then
-			destroy = true
-			bulletHitEvent:Fire({
-				bulletId = bulletId,
-				rayResult = rayResult,
-			})
+	if updates then
+		for i = 1, #updates, 2 do
+			(updates[i] :: BasePart).CFrame = updates[i + 1]
 		end
-
-		if bulletData.time > bulletData.lifetime then
-			destroy = true
-		end
-
-		if destroy then
-			activeBullets[bulletId] = nil
-		else
-			bulletData.time += data.deltaTime
-			bulletData.currentPosition = projectilePosition
-		end
-
-		bulletUpdateEvent:Fire({
-			bulletId = bulletId,
-			position = projectilePosition,
-			cframe = cframe,
-			time = bulletData.time,
-			destroy = destroy,
-		})
 	end
-
-	lastHeartbeat = currentTime
-end)
-
-actor:BindToMessageParallel("Cleanup", function()
-	activeBullets = {}
+	if hits then
+		hitEvent:Fire(hits)
+	end
+	if ended then
+		endEvent:Fire(ended)
+	end
 end)

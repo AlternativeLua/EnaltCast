@@ -2,13 +2,13 @@ return {
 	SurfaceHardness = {
 		Default = 10,
 		[Enum.Material.Plastic] = 10,
-	}, --> this is here just for the future for richochet and penetration
+	}, 
 
 	Visualise = true, --> basically debug
 	SafeMode = false, --> if to let the server handle the bullet replication or not
-	ParallelProcessing = true, --> if should use multiple threads or not
+	ParallelProcessing = false, --> if should use multiple threads or not
 
-	LoadBalanceStrategy = "LeastLoadedActor", --> "RoundBin", "LeastLoadedActor"
-	UpdateRate = 30, --> 30hz as default
+	LoadBalanceStrategy = "LeastLoadedActor", --> "RoundRobin", "LeastLoadedActor"
+	UpdateRate = 60, --> max physics sub-steps per second (frame-rate independent)
 	ActorAmount = 12,
 }
