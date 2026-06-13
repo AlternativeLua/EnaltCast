@@ -4,75 +4,95 @@
 
 -- Original Author: AlternativeFent
 -- Editor and Optimiser: EnumEnv
--- Services --
+
 local RunService = game:GetService("RunService")
--- Imports --
+
 local Types = require(script.Types)
 local Visualiser = require(script.Visualiser)
 local Settings = require(script.Settings)
-local MathUtils = require(script.Math)
+local Math = require(script.Math)
 local FastSignal = require(script.Packages.fastsignal)
 local Pooler = require(script.Pooler)
 
--- Class --
 local Caster = {}
 Caster.__index = Caster
 
--- Instances --
-local ActorsCreated = false
-local CreatingActors = false
+local MAX_FRAME = 0.1
 
-local BulletActors = {}
 local BulletFolder = workspace:FindFirstChild("BulletsFolder") or Instance.new("Folder")
 BulletFolder.Name = "BulletsFolder"
 BulletFolder.Parent = workspace
 
-if not ActorsCreated and not CreatingActors and Settings.ParallelProcessing then
-	CreatingActors = true
+local BulletActors: { Actor } = {}
+local CommHit: BindableEvent
+local CommEnd: BindableEvent
+local ActorsCreated = false
 
-	for i = 1, Settings.ActorAmount do
-		local BulletActor = Instance.new("Actor")
-		BulletActor.Name = "BulletActor" .. i
-		BulletActor.Parent = script
+-- Actors run their own Script under a non-replicated container (ServerScriptService
+-- on the server, the local player's PlayerScripts on the client) so they actually
+-- execute and never leak across the network boundary.
+local function ensureActors()
+	if ActorsCreated then
+		return
+	end
+	ActorsCreated = true
 
-		BulletActors[i] = BulletActor
-
-		if RunService:IsServer() then
-			local actorScript = script:FindFirstChild("BulletActorScriptServer")
-			if actorScript then
-				actorScript:Clone().Parent = BulletActor
-			end
-		elseif RunService:IsClient() then
-			local actorScript = script:FindFirstChild("BulletActorScriptClient")
-			if actorScript then
-				actorScript:Clone().Parent = BulletActor
-			end
-		end
+	local container: Instance
+	local template: Instance?
+	if RunService:IsServer() then
+		container = game:GetService("ServerScriptService")
+		template = script:FindFirstChild("BulletActorScriptServer")
+	else
+		container = game:GetService("Players").LocalPlayer:WaitForChild("PlayerScripts")
+		template = script:FindFirstChild("BulletActorScriptClient")
 	end
 
-	ActorsCreated = true
+	local holder = Instance.new("Folder")
+	holder.Name = "EnaltCastRuntime"
+
+	CommHit = Instance.new("BindableEvent")
+	CommHit.Name = "BulletHit"
+	CommHit.Parent = holder
+
+	CommEnd = Instance.new("BindableEvent")
+	CommEnd.Name = "BulletEnd"
+	CommEnd.Parent = holder
+
+	for i = 1, Settings.ActorAmount do
+		local actor = Instance.new("Actor")
+		actor.Name = "BulletActor" .. i
+
+		local moduleRef = Instance.new("ObjectValue")
+		moduleRef.Name = "Module"
+		moduleRef.Value = script
+		moduleRef.Parent = actor
+
+		if template then
+			template:Clone().Parent = actor
+		end
+
+		actor.Parent = holder
+		BulletActors[i] = actor
+	end
+
+	holder.Parent = container
 end
 
--- Types --
 type CastConfig = Types.CastConfig
 type ProjectileData = Types.ProjectileData
 type Pooler = Pooler.Pooler
 export type Caster = typeof(Caster) & {
 	_connections: { RBXScriptConnection },
 	_activeBullets: { ProjectileData },
-	_actorBullets: { [string]: ProjectileData },
+	_actorBullets: { [number]: ProjectileData },
 	_actorWorkloads: { [number]: number },
-	_bulletToActorMap: { [string]: number },
+	_bulletToActorMap: { [number]: number },
 	_bulletIdCounter: number,
 	_currentActorIndex: number,
-	_deltaTime: number,
-	_lastHeartbeat: number,
 	_useParallel: boolean,
+	_commReady: boolean,
 }
 
--- Module Functions --
---- Creates a new instance of 'Caster'.
---- @return Caster
 function Caster.new(): Caster
 	local self: Caster = setmetatable({}, Caster) :: any
 
@@ -83,138 +103,150 @@ function Caster.new(): Caster
 	self._bulletToActorMap = {}
 	self._bulletIdCounter = 0
 	self._currentActorIndex = 1
-	self._deltaTime = 0
-	self._lastHeartbeat = os.clock()
 	self._useParallel = Settings.ParallelProcessing
+	self._commReady = false
 
 	for i = 1, Settings.ActorAmount do
 		self._actorWorkloads[i] = 0
 	end
 
 	if self._useParallel then
+		ensureActors()
 		self:_setupActorCommunication()
 	end
 
-	if RunService:IsClient() then
-		table.insert(
-			self._connections,
-			RunService.RenderStepped:Connect(function(deltaTime: number)
-				self:_heartbeat(deltaTime)
-			end)
-		)
-	else
-		table.insert(
-			self._connections,
-			RunService.Heartbeat:Connect(function(deltaTime: number)
-				self:_heartbeat(deltaTime)
-			end)
-		)
-	end
+	local signal = RunService:IsClient() and RunService.RenderStepped or RunService.Heartbeat
+	table.insert(
+		self._connections,
+		signal:Connect(function(deltaTime: number)
+			self:_heartbeat(deltaTime)
+		end)
+	)
 
-	return self :: any
+	return self
 end
 
---- Sets up communication with all bullet actors
 function Caster._setupActorCommunication(self: Caster)
-	local communicationFolder = script:FindFirstChild("ActorComm") or Instance.new("Folder")
-	communicationFolder.Name = "ActorComm"
-	communicationFolder.Parent = script
-
-	local bulletUpdateEvent = communicationFolder:FindFirstChild("BulletUpdate") or Instance.new("BindableEvent")
-	bulletUpdateEvent.Name = "BulletUpdate"
-	bulletUpdateEvent.Parent = communicationFolder
-
-	local bulletHitEvent = communicationFolder:FindFirstChild("BulletHit") or Instance.new("BindableEvent")
-	bulletHitEvent.Name = "BulletHit"
-	bulletHitEvent.Parent = communicationFolder
-
-	table.insert(
-		self._connections,
-		bulletUpdateEvent.Event:Connect(function(data)
-			self:_handleActorUpdate(data)
-		end)
-	)
-
-	table.insert(
-		self._connections,
-		bulletHitEvent.Event:Connect(function(data)
-			self:_handleActorHit(data)
-		end)
-	)
-end
-
---- Gets the actor with the least workload for load balancing
---- @return number actorIndex
-function Caster._getLeastLoadedActor(self: Caster): number
-	local minWorkload = math.huge
-	local bestActor = 1
-
-	for i = 1, Settings.ActorAmount do
-		if self._actorWorkloads[i] < minWorkload then
-			minWorkload = self._actorWorkloads[i]
-			bestActor = i
-		end
-	end
-
-	return bestActor
-end
-
---- Gets the next actor using round-robin distribution
---- @return number actorIndex
-function Caster._getNextActorRoundRobin(self: Caster): number
-	local actorIndex = self._currentActorIndex
-	self._currentActorIndex = (self._currentActorIndex % Settings.ActorAmount) + 1
-	return actorIndex
-end
-
---- Handles bullet updates from actors
-function Caster._handleActorUpdate(self: Caster, data: any)
-	local bulletId = data.bulletId
-	local projectileData = self._actorBullets[bulletId]
-
-	if not projectileData then
+	if self._commReady then
 		return
 	end
+	self._commReady = true
 
-	projectileData.CurrentPosition = data.position
-	projectileData.Time = data.time
+	table.insert(
+		self._connections,
+		CommHit.Event:Connect(function(hits)
+			self:_handleActorHits(hits)
+		end)
+	)
+	table.insert(
+		self._connections,
+		CommEnd.Event:Connect(function(ids)
+			self:_handleActorEnds(ids)
+		end)
+	)
+end
 
-	if projectileData.Bullet then
-		projectileData.Bullet.CFrame = data.cframe
+function Caster._pickActor(self: Caster): number
+	if Settings.LoadBalanceStrategy == "RoundRobin" then
+		local i = self._currentActorIndex
+		self._currentActorIndex = (i % Settings.ActorAmount) + 1
+		return i
 	end
 
-	if data.destroy then
-		if projectileData.Bullet then
-			projectileData.Bullet:Destroy()
+	local best, min = 1, math.huge
+	for i = 1, Settings.ActorAmount do
+		local workload = self._actorWorkloads[i]
+		if workload < min then
+			min, best = workload, i
+		end
+	end
+	return best
+end
+
+function Caster._actorPayload(self: Caster, id: number, data: ProjectileData)
+	local config = data.Config
+	local rp = config.RayParams
+	return {
+		bulletId = id,
+		bullet = data.Bullet,
+		origin = data.CurrentPosition,
+		velocity = data.Velocity,
+		extraForce = config.ExtraForce or Vector3.zero,
+		lifetime = config.Lifetime or 5,
+		time = data.Time,
+		filter = table.clone(data.IgnoreList),
+		filterType = rp.FilterType,
+		ignoreWater = rp.IgnoreWater,
+		respectCanCollide = rp.RespectCanCollide,
+		collisionGroup = rp.CollisionGroup,
+		penetrationPower = data.PenetrationPower,
+		ricochetAngle = config.RichochetAngle,
+		ricochetHardness = config.RichochetHardness,
+		loss = config.Loss,
+	}
+end
+
+function Caster._handleActorHits(self: Caster, hits: { any })
+	for _, h in hits do
+		local data = self._actorBullets[h.bulletId]
+		if not data then
+			continue
 		end
 
-		local actorIndex = self._bulletToActorMap[bulletId]
+		local config = data.Config
+		local result = {
+			Instance = h.instance,
+			Position = h.position,
+			Normal = h.normal,
+			Material = h.material,
+			Distance = h.distance,
+		} :: any
+
+		if h.type == "Humanoid" then
+			if config.OnHumanoidHit then
+				config.OnHumanoidHit:Fire(result, data, h.humanoid)
+			end
+			if config.OnImpact then
+				config.OnImpact:Fire(result, data)
+			end
+		elseif h.type == "Ricochet" then
+			if config.OnRichochet then
+				config.OnRichochet:Fire(result, data)
+			end
+		elseif h.type == "Penetration" then
+			if config.OnPenetration then
+				config.OnPenetration:Fire(result, data)
+			end
+		elseif config.OnImpact then
+			config.OnImpact:Fire(result, data)
+		end
+
+		if Settings.Visualise then
+			Visualiser.VisualiseHit(CFrame.new(h.position))
+		end
+	end
+end
+
+function Caster._handleActorEnds(self: Caster, ids: { number })
+	for _, id in ids do
+		local data = self._actorBullets[id]
+		if data then
+			if data.Pooler and data.Bullet then
+				data.Pooler:Return(data.Bullet)
+			elseif data.Bullet then
+				data.Bullet:Destroy()
+			end
+		end
+
+		local actorIndex = self._bulletToActorMap[id]
 		if actorIndex then
 			self._actorWorkloads[actorIndex] = math.max(0, self._actorWorkloads[actorIndex] - 1)
-			self._bulletToActorMap[bulletId] = nil
+			self._bulletToActorMap[id] = nil
 		end
-
-		self._actorBullets[bulletId] = nil
+		self._actorBullets[id] = nil
 	end
 end
 
---- Handles bullet hits from actors
-function Caster._handleActorHit(self: Caster, data: any)
-	local bulletId = data.bulletId
-	local projectileData = self._actorBullets[bulletId]
-
-	if not projectileData then
-		return
-	end
-
-	projectileData.Config.OnImpact:Fire(data.rayResult, projectileData)
-
-	if Settings.Visualise then
-		Visualiser.VisualiseHit(CFrame.new(data.rayResult.Position))
-	end
-end
-
---- Destroys the caster class
 function Caster.Destroy(self: Caster)
 	for _, connection in self._connections do
 		connection:Disconnect()
@@ -223,7 +255,7 @@ function Caster.Destroy(self: Caster)
 	if self._useParallel then
 		for i = 1, Settings.ActorAmount do
 			if BulletActors[i] then
-				BulletActors[i]:SendMessage("Cleanup", {})
+				BulletActors[i]:SendMessage("Cleanup")
 			end
 		end
 	end
@@ -235,11 +267,11 @@ function Caster.Destroy(self: Caster)
 	self._bulletToActorMap = {}
 end
 
---- Casts a projectile bullet.
---- @param config CastConfig the configuration for the cast
---- @param origin Vector3 the origin of the cast
---- @param direction Vector3 the direction of the cast
---- @param bullet BasePart? | Pooler | nil the new bullet part to be casted
+--- Casts a projectile.
+--- @param config CastConfig
+--- @param origin Vector3
+--- @param direction Vector3 unit direction; speed comes from config.Speed
+--- @param bullet BasePart | Pooler | nil visual part (replicate on the client)
 function Caster.Cast(
 	self: Caster,
 	config: CastConfig,
@@ -252,93 +284,58 @@ function Caster.Cast(
 		return
 	end
 
-	local pooler
+	local pooler: Pooler? = nil
 	if bullet and typeof(bullet) ~= "Instance" then
 		pooler = bullet
-		bullet = bullet:Pull()
+		bullet = (bullet :: Pooler):Pull()
 	end
 
 	if bullet then
-		bullet.Parent = BulletFolder
-		local ancestryConnection
-		ancestryConnection = bullet.AncestryChanged:Connect(function()
-			if bullet and bullet.Parent then
-				if bullet.Parent ~= nil then
-					bullet.Parent = BulletFolder
-				else
-					ancestryConnection:Disconnect()
-				end
-			else
-				ancestryConnection:Disconnect()
-			end
-		end)
+		(bullet :: BasePart).Parent = BulletFolder
 	end
 
-	local projectileData: ProjectileData = {
+	local data: ProjectileData = {
 		Config = config,
 		Origin = origin,
 		Direction = direction,
 		Time = 0,
 		CurrentPosition = origin,
-		CurrentDirection = Vector3.zero,
+		CurrentDirection = direction,
 		Velocity = direction * config.Speed,
-		Bullet = bullet,
-		IgnoreList = config.RayParams.FilterDescendantsInstances or {},
+		IgnoreList = table.clone(config.RayParams.FilterDescendantsInstances),
+		PenetrationPower = config.PenetrationPower,
+		RayParams = Math.CloneRayParams(config.RayParams),
+		Bullet = bullet :: BasePart?,
+		Pooler = pooler,
 	}
-	if pooler then
-		projectileData.Pooler = pooler
-	end
 
 	if self._useParallel then
 		self._bulletIdCounter += 1
-		local bulletId = tostring(self._bulletIdCounter)
-		self._actorBullets[bulletId] = projectileData
+		local id = self._bulletIdCounter
+		self._actorBullets[id] = data
 
-		local actorIndex
-		if Settings.LoadBalanceStrategy == "RoundRobin" then
-			actorIndex = self:_getNextActorRoundRobin()
-		else
-			actorIndex = self:_getLeastLoadedActor()
-		end
-
+		local actorIndex = self:_pickActor()
 		self._actorWorkloads[actorIndex] += 1
-		self._bulletToActorMap[bulletId] = actorIndex
+		self._bulletToActorMap[id] = actorIndex
 
-		local actorData = {
-			bulletId = bulletId,
-			origin = origin,
-			direction = direction,
-			speed = config.Speed,
-			extraForce = config.ExtraForce or Vector3.zero,
-			lifetime = config.Lifetime or 5,
-			rayParams = config.RayParams,
-		}
-
-		BulletActors[actorIndex]:SendMessage("CastBullet", actorData)
+		BulletActors[actorIndex]:SendMessage("CastBullet", self:_actorPayload(id, data))
 	else
-		table.insert(self._activeBullets, projectileData)
+		table.insert(self._activeBullets, data)
 	end
 end
 
---- Gets the bullet folder where all bullets are held.
---- @return Folder
 function Caster.GetBulletFolderAsync(self: Caster): Folder
 	return BulletFolder or workspace:WaitForChild("BulletsFolder")
 end
 
---- Utility function to create a new FastSignal signal
---- @return FastSignal.ScriptSignal<T1, T2, T3?>
 function Caster.NewSignal<T1, T2, T3>(self: Caster): FastSignal.ScriptSignal<T1, T2, T3?>
 	return FastSignal.new()
 end
 
---- Utility function to create a new Pooler class
 function Caster.NewPooler(self: Caster, ...)
 	return Pooler.new(...)
 end
 
---- Gets current workload distribution across actors
---- @return { [number]: number }
 function Caster.GetWorkloadDistribution(self: Caster): { [number]: number }
 	local distribution = {}
 	for i = 1, Settings.ActorAmount do
@@ -347,8 +344,6 @@ function Caster.GetWorkloadDistribution(self: Caster): { [number]: number }
 	return distribution
 end
 
---- Gets total bullets being processed across all actors
---- @return number
 function Caster.GetTotalActorBullets(self: Caster): number
 	local total = 0
 	for i = 1, Settings.ActorAmount do
@@ -357,48 +352,37 @@ function Caster.GetTotalActorBullets(self: Caster): number
 	return total
 end
 
---- Toggles between parallel and single-threaded processing
---- @param useParallel boolean
 function Caster.SetParallelProcessing(self: Caster, useParallel: boolean)
 	if self._useParallel == useParallel then
 		return
 	end
 
 	if useParallel then
+		ensureActors()
+		self:_setupActorCommunication()
+
 		for i = #self._activeBullets, 1, -1 do
-			local projectileData = self._activeBullets[i]
+			local data = self._activeBullets[i]
 			self._bulletIdCounter += 1
-			local bulletId = tostring(self._bulletIdCounter)
+			local id = self._bulletIdCounter
+			self._actorBullets[id] = data
 
-			self._actorBullets[bulletId] = projectileData
-
-			local actorIndex = self:_getLeastLoadedActor()
+			local actorIndex = self:_pickActor()
 			self._actorWorkloads[actorIndex] += 1
-			self._bulletToActorMap[bulletId] = actorIndex
+			self._bulletToActorMap[id] = actorIndex
 
-			local actorData = {
-				bulletId = bulletId,
-				origin = projectileData.Origin,
-				direction = projectileData.Direction,
-				speed = projectileData.Config.Speed,
-				extraForce = projectileData.Config.ExtraForce or Vector3.zero,
-				lifetime = projectileData.Config.Lifetime or 5,
-				rayParams = projectileData.Config.RayParams,
-				currentPosition = projectileData.CurrentPosition,
-				time = projectileData.Time,
-				velocity = projectileData.Velocity,
-			}
-
-			BulletActors[actorIndex]:SendMessage("CastBullet", actorData)
-			table.remove(self._activeBullets, i)
+			BulletActors[actorIndex]:SendMessage("CastBullet", self:_actorPayload(id, data))
+			self._activeBullets[i] = nil
 		end
 	else
 		for i = 1, Settings.ActorAmount do
-			BulletActors[i]:SendMessage("Cleanup", {})
+			if BulletActors[i] then
+				BulletActors[i]:SendMessage("Cleanup")
+			end
 		end
 
-		for bulletId, projectileData in self._actorBullets do
-			table.insert(self._activeBullets, projectileData)
+		for _, data in self._actorBullets do
+			table.insert(self._activeBullets, data)
 		end
 
 		self._actorBullets = {}
@@ -415,156 +399,135 @@ end
 -- PRIVATE METHODS --
 ---------------------
 
---- Update loop for projectile bullets.
---- @param deltaTime number The time between the last frame and the current frame.
 function Caster._heartbeat(self: Caster, deltaTime: number)
-	self._deltaTime = deltaTime
-
-	local currentTime = os.clock()
-	local timeSinceUpdate = currentTime - self._lastHeartbeat
-	local updateInterval = 1 / Settings.UpdateRate
-
-	if timeSinceUpdate < updateInterval then
+	if self._useParallel then
 		return
 	end
 
-	if not self._useParallel then
-		for index, data in self._activeBullets do
-			local hit, raycastResult = self:_updateProjectile(data)
-
-			if hit then
-				if data.Bullet and not data.Pooler then
-					data.Bullet:Destroy()
-				elseif data.Pooler then
-					data.Pooler:Return(data.Bullet)
-				end
-
-				table.remove(self._activeBullets, index)
+	local bullets = self._activeBullets
+	for i = #bullets, 1, -1 do
+		local data = bullets[i]
+		if self:_stepProjectile(data, deltaTime) then
+			if data.Pooler and data.Bullet then
+				data.Pooler:Return(data.Bullet)
+			elseif data.Bullet then
+				data.Bullet:Destroy()
 			end
+
+			local n = #bullets
+			bullets[i] = bullets[n]
+			bullets[n] = nil
 		end
 	end
-
-	if self._useParallel then
-		local heartbeatData = {
-			deltaTime = deltaTime,
-			updateInterval = updateInterval,
-			visualise = Settings.Visualise,
-		}
-
-		for i = 1, Settings.ActorAmount do
-			BulletActors[i]:SendMessage("Heartbeat", heartbeatData)
-		end
-	end
-
-	self._lastHeartbeat = os.clock()
 end
 
---- Handles the updating position of the bullet (single-threaded fallback)
---- @param projectileData ProjectileData
---- @return boolean, RaycastResult?
-function Caster._updateProjectile(self: Caster, projectileData: ProjectileData): (boolean, RaycastResult?)
-	local displacement = MathUtils.GetPositionAtTime(projectileData)
-	local projectilePosition = projectileData.CurrentPosition + displacement
+-- Advances a bullet by deltaTime, sub-stepping at UpdateRate so flight and hit
+-- detection stay frame-rate independent while the part still moves every frame.
+function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: number): boolean
+	local config = data.Config
+	local force = config.ExtraForce or Vector3.zero
+	local lifetime = config.Lifetime or 5
+	local maxStep = 1 / Settings.UpdateRate
+	local params = data.RayParams :: RaycastParams
 
-	local velocity = projectileData.Velocity + projectileData.Config.ExtraForce * projectileData.Time
-	local lookVector = velocity.Magnitude > 0 and velocity.Unit or Vector3.new(0, 0, -1)
+	local visFrom = data.CurrentPosition
+	local remaining = math.min(deltaTime, MAX_FRAME)
+	local stop = false
 
-	local newParams = projectileData.Config.RayParams
-	newParams.FilterDescendantsInstances = projectileData.IgnoreList
-	local rayResult = workspace:Raycast(
-		projectileData.CurrentPosition,
-		projectilePosition - projectileData.CurrentPosition,
-		newParams
+	while remaining > 0 do
+		local step = math.min(remaining, maxStep)
+		remaining -= step
+		data.Time += step
+		data.Velocity += force * step
+
+		local from = data.CurrentPosition
+		local to = from + data.Velocity * step
+
+		while true do
+			params.FilterDescendantsInstances = data.IgnoreList
+			local result = workspace:Raycast(from, to - from, params)
+			if not result then
+				break
+			end
+
+			local action = self:_resolveHit(data, result)
+			if action == "penetration" then
+				from = result.Position
+			elseif action == "ricochet" then
+				to = data.CurrentPosition
+				break
+			else
+				to = result.Position
+				stop = true
+				break
+			end
+		end
+
+		data.CurrentPosition = to
+		data.CurrentDirection = data.Velocity
+
+		if stop or data.Time >= lifetime then
+			stop = true
+			break
+		end
+	end
+
+	local v = data.Velocity
+	local facing = if v.Magnitude > 0 then v.Unit else -Vector3.zAxis
+
+	if data.Bullet then
+		data.Bullet.CFrame = CFrame.lookAlong(data.CurrentPosition, facing)
+	end
+
+	if Settings.Visualise and RunService:IsClient() then
+		Visualiser.VisualiseSegment(CFrame.lookAlong(visFrom, facing), (data.CurrentPosition - visFrom).Magnitude)
+	end
+
+	return stop
+end
+
+function Caster._resolveHit(self: Caster, data: ProjectileData, result: RaycastResult): string
+	local config = data.Config
+	local hardness = Settings.SurfaceHardness[result.Material] or Settings.SurfaceHardness.Default
+	local decision = Math.Resolve(
+		result,
+		data.Velocity,
+		hardness,
+		config.RichochetAngle,
+		config.RichochetHardness,
+		data.PenetrationPower,
+		config.Loss
 	)
 
-	local destroy = false
-	if rayResult then
-		destroy = self:_hit(projectileData, rayResult)
+	if decision.Type == "Humanoid" then
+		if config.OnHumanoidHit then
+			config.OnHumanoidHit:Fire(result, data, decision.Humanoid :: Humanoid)
+		end
+		if config.OnImpact then
+			config.OnImpact:Fire(result, data)
+		end
+		return "stop"
+	elseif decision.Type == "Ricochet" then
+		data.Velocity = decision.Velocity :: Vector3
+		data.CurrentPosition = result.Position
+		data.Origin = result.Position
+		if config.OnRichochet then
+			config.OnRichochet:Fire(result, data)
+		end
+		return "ricochet"
+	elseif decision.Type == "Penetration" then
+		data.PenetrationPower = (data.PenetrationPower :: number) - (decision.Cost :: number)
+		table.insert(data.IgnoreList, result.Instance)
+		if config.OnPenetration then
+			config.OnPenetration:Fire(result, data)
+		end
+		return "penetration"
 	end
 
-	if projectileData.Time > (projectileData.Config.Lifetime or 5) or destroy then
-		return true, rayResult
+	if config.OnImpact then
+		config.OnImpact:Fire(result, data)
 	end
-
-	projectileData.Time += self._deltaTime
-	projectileData.CurrentDirection = projectileData.CurrentPosition - projectilePosition
-	projectileData.CurrentPosition = projectilePosition
-
-	if projectileData.Bullet then
-		projectileData.Bullet.CFrame = CFrame.new(projectilePosition, projectilePosition + lookVector)
-	end
-
-	if Settings.Visualise and RunService:IsClient() then
-		Visualiser.VisualiseSegment(
-			CFrame.new(projectilePosition, projectilePosition + lookVector),
-			displacement.Magnitude
-		)
-	end
-
-	return false
+	return "stop"
 end
 
---- Handles the impact of the bullet (single-threaded fallback)
---- @param projectileData ProjectileData
---- @param rayResult RaycastResult
---- @return boolean (if should destroy)
-function Caster._hit(self: Caster, projectileData: ProjectileData, rayResult: RaycastResult): boolean
-	if Settings.Visualise and RunService:IsClient() then
-		Visualiser.VisualiseHit(CFrame.new(rayResult.Position))
-	end
-
-	local direction = projectileData.CurrentDirection
-	local normal = rayResult.Normal
-	local unitDirection = direction.Unit
-	local surfaceAngle = math.acos(unitDirection:Dot(normal.Unit))
-	local hardness = Settings.SurfaceHardness[rayResult.Material] or Settings.SurfaceHardness.Default
-
-	print(math.deg(surfaceAngle))
-	-- // Ricochet
-	if
-		projectileData.Config.RichochetAngle
-		and surfaceAngle <= math.rad(projectileData.Config.RichochetAngle)
-		and hardness >= projectileData.Config.RichochetHardness
-	then
-		projectileData.Time = 0
-		projectileData.CurrentPosition = rayResult.Position
-		projectileData.Origin = rayResult.Position
-		projectileData.Velocity = -(unitDirection - (2 * unitDirection:Dot(normal) * normal)).Unit
-			* projectileData.Config.Speed
-
-		if projectileData.Config.OnRichochet then
-			projectileData.Config.OnRichochet:Fire(rayResult, projectileData)
-		end
-
-		return false
-		-- // Penetration
-	elseif rayResult ~= workspace.Terrain then
-		local reverseDirection = -unitDirection * rayResult.Instance.Size.Magnitude
-		local reverseOrigin = rayResult.Position - reverseDirection
-		local reverseResult = workspace:Raycast(reverseOrigin, reverseDirection, RaycastParams.new()) :: RaycastResult?
-		local reversePosition = reverseResult and reverseResult.Position or (reverseOrigin + reverseDirection)
-
-		local depth = (reversePosition - rayResult.Position).Magnitude
-		local strenght = (depth * hardness)
-
-		if projectileData.Config.PenetrationPower >= strenght then
-			projectileData.Config.PenetrationPower -= strenght
-			table.insert(projectileData.IgnoreList, rayResult.Instance)
-
-			if projectileData.Config.OnPenetration then
-				projectileData.Config.OnPenetration:Fire(rayResult, projectileData)
-			end
-
-			return false
-		else
-			return true
-		end
-	end
-
-	projectileData.Config.OnImpact:Fire(rayResult, projectileData)
-
-	return true
-end
-
--- End --
 return Caster :: Caster
