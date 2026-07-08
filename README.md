@@ -6,7 +6,6 @@ Super fast and easy to use casting system. Made for projectile physics that's su
 
 Authors: Alternative, EnumEnv
 Visualiser: FastCast
-Penetration/Ricochet: SecureCast
 
 # Example
 
