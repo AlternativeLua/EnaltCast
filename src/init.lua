@@ -11,12 +11,14 @@ local Types = require(script.Types)
 local Visualiser = require(script.Visualiser)
 local Settings = require(script.Settings)
 local Math = require(script.Math)
+local LagCompensation = require(script.LagCompensation)
 local FastSignal = require(script.Packages.fastsignal)
 local Pooler = require(script.Pooler)
 
 local Caster = {}
 Caster.__index = Caster
 
+local IS_SERVER = RunService:IsServer()
 local MAX_FRAME = 0.1
 
 local BulletFolder = workspace:FindFirstChild("BulletsFolder") or Instance.new("Folder")
@@ -299,6 +301,7 @@ function Caster.Cast(
 		Origin = origin,
 		Direction = direction,
 		Time = 0,
+		RewindTime = config.RewindTime,
 		CurrentPosition = origin,
 		CurrentDirection = direction,
 		Velocity = direction * config.Speed,
@@ -430,6 +433,9 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 	local maxStep = 1 / Settings.UpdateRate
 	local params = data.RayParams :: RaycastParams
 
+	-- Rewind tracked targets only on the server, for shots that opted in
+	local useLagComp = IS_SERVER and Settings.LagCompensation and config.LagCompensation and data.RewindTime ~= nil
+
 	local visFrom = data.CurrentPosition
 	local remaining = math.min(deltaTime, MAX_FRAME)
 	local stop = false
@@ -445,7 +451,12 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 
 		while true do
 			params.FilterDescendantsInstances = data.IgnoreList
-			local result = workspace:Raycast(from, to - from, params)
+			local result
+			if useLagComp then
+				result = LagCompensation.Raycast(from, to - from, params, data.IgnoreList, (data.RewindTime :: number) + data.Time)
+			else
+				result = workspace:Raycast(from, to - from, params)
+			end
 			if not result then
 				break
 			end

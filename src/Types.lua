@@ -14,6 +14,9 @@ export type CastConfig = {
 	PenetrationPower: number?,
 	Loss: number?,
 
+	LagCompensation: boolean?,
+	RewindTime: number?, --> client Workspace:GetServerTimeNow() at the shot
+
 	OnImpact: FastSignal.ScriptSignal<RaycastResult, ProjectileData>,
 	OnPenetration: FastSignal.ScriptSignal<RaycastResult, ProjectileData>,
 	OnRichochet: FastSignal.ScriptSignal<RaycastResult, ProjectileData>,
@@ -28,6 +31,7 @@ export type ProjectileData = {
 	CurrentDirection: Vector3,
 	Velocity: Vector3,
 	Time: number,
+	RewindTime: number?,
 	IgnoreList: { Instance },
 	PenetrationPower: number?,
 	RayParams: RaycastParams?,
