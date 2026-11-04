@@ -95,3 +95,17 @@ Starts a new projectile cast \
 **origin**: `Vector3` Where the projectile starts \
 **direction**: `Vector3` The direction where the projectile should go \
 **bullet**: `BasePart?` The visual part of the projectile
+
+# Development
+
+Tools are pinned in `rokit.toml` (Rojo + Wally).
+
+```sh
+rokit install                       # install pinned tools
+wally install                       # fetch dependencies into Packages/
+rojo serve test.project.json        # live-sync the test place into Studio
+```
+
+The test place puts EnaltCast in `ReplicatedStorage.Packages` next to its dependencies (the same layout Wally gives consumers) and adds a baseplate, a wall, and a test harness in `test/`. Press Play and click to fire; impacts, ricochets, penetrations and humanoid hits print to the output.
+
+For luau-lsp, generate a sourcemap with `rojo sourcemap test.project.json -o sourcemap.json`. `Packages/`, `wally.lock` and `sourcemap.json` are generated and not committed.

@@ -2,9 +2,6 @@
 	"name": "enaltcast",
 	"emitLegacyScripts": false,
 	"tree": {
-		"$path": "src",
-		"Packages": {
-			"$path": "packages"
-		}
+		"$path": "src"
 	}
 }

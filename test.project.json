@@ -1,15 +1,112 @@
 {
-    "name": "EnaltCast",
-    "emitLegacyScripts": false,
-    "tree": {
-        "$className": "DataModel",
-        "ReplicatedStorage": {
-            "Shared": {
-                "$className": "Folder",
-                "EnaltCast": {
-                    "$path": "default.project.json"
-                }
-            }
-        }
-    }
+	"name": "EnaltCast",
+	"emitLegacyScripts": false,
+	"tree": {
+		"$className": "DataModel",
+		"ReplicatedStorage": {
+			"Packages": {
+				"$path": "Packages",
+				"EnaltCast": {
+					"$path": "default.project.json"
+				}
+			},
+			"EnaltCastTest": {
+				"$className": "Folder",
+				"Fire": {
+					"$className": "RemoteEvent"
+				},
+				"Bullet": {
+					"$className": "Part",
+					"$properties": {
+						"Anchored": true,
+						"CanCollide": false,
+						"CanQuery": false,
+						"CanTouch": false,
+						"Size": [
+							0.2,
+							0.2,
+							1
+						],
+						"Color": [
+							1,
+							0.8,
+							0.2
+						]
+					}
+				}
+			}
+		},
+		"ServerScriptService": {
+			"EnaltCastTest": {
+				"$path": "test/server"
+			}
+		},
+		"StarterPlayer": {
+			"StarterPlayerScripts": {
+				"EnaltCastTest": {
+					"$path": "test/client"
+				}
+			}
+		},
+		"Workspace": {
+			"Baseplate": {
+				"$className": "Part",
+				"$properties": {
+					"Anchored": true,
+					"Size": [
+						512,
+						20,
+						512
+					],
+					"Position": [
+						0,
+						-10,
+						0
+					],
+					"Color": [
+						0.39,
+						0.37,
+						0.38
+					]
+				}
+			},
+			"SpawnLocation": {
+				"$className": "SpawnLocation",
+				"$properties": {
+					"Anchored": true,
+					"Size": [
+						6,
+						1,
+						6
+					],
+					"Position": [
+						0,
+						0.5,
+						0
+					]
+				}
+			},
+			"Wall": {
+				"$className": "Part",
+				"$properties": {
+					"Anchored": true,
+					"Size": [
+						20,
+						12,
+						1
+					],
+					"Position": [
+						0,
+						6,
+						-30
+					],
+					"Color": [
+						0.6,
+						0.6,
+						0.65
+					]
+				}
+			}
+		}
+	}
 }

@@ -1,2 +1,12 @@
+# Wally
+Packages/
 wally.lock
+
+# Rojo / luau-lsp
+sourcemap.json
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxlx.lock
+
 aftman.toml

@@ -12,7 +12,7 @@ local Visualiser = require(script.Visualiser)
 local Settings = require(script.Settings)
 local Math = require(script.Math)
 local LagCompensation = require(script.LagCompensation)
-local FastSignal = require(script.Packages.fastsignal)
+local FastSignal = require(script.Parent.fastsignal)
 local Pooler = require(script.Pooler)
 
 local Caster = {}

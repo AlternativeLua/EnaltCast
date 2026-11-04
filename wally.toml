@@ -1,12 +1,12 @@
 [package]
 name = "nametakenbonk/enaltcast"
 description = "A fast and easy to use caster"
-lisence = "MIT"
+license = "MIT"
 authors = ["Alternative", "EnumEnv"]
 version = "0.0.8"
 registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
-exclude = ["**.lock", "Packages", "**.json"]
+exclude = ["Packages", "test", "wally.lock", "sourcemap.json", "test.project.json", "rokit.toml", "aftman.toml"]
 
 [dependencies]
 fastsignal = "lucasmzreal/fastsignal@10.4.0"

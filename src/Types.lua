@@ -1,4 +1,4 @@
-local FastSignal = require(script.Parent.Packages.fastsignal)
+local FastSignal = require(script.Parent.Parent.fastsignal)
 local Pooler = require(script.Parent.Pooler)
 
 export type CastConfig = {
