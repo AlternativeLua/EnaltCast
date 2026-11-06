@@ -4,7 +4,7 @@ return {
 		[Enum.Material.Plastic] = 10,
 	}, 
 
-	Visualise = true, --> basically debug
+	Visualise = false, --> basically debug
 	SafeMode = false, --> if to let the server handle the bullet replication or not
 	ParallelProcessing = false, --> if should use multiple threads or not
 
