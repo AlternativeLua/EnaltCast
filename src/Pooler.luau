@@ -1,97 +1,102 @@
 --!strict
 --!optimize 2
 -- AlternativeFent
--- A simple cache system for parts to optimize the costs of Instance.new() and :Clone() by already pooling pre existsing parts
+-- A simple cache system for parts to optimize the costs of Instance.new() and :Clone() by already pooling pre existing parts
 
-local PoolFolder
-if not workspace:FindFirstChild("PoolFolder") then
-    PoolFolder = Instance.new("Folder", workspace)
-    PoolFolder.Name = "PoolFolder" 
-else
-    PoolFolder = workspace:FindFirstChild("PoolFolder")
+local FAR_CFRAME = CFrame.new(0, 1e6, 0)
+
+local PoolFolder = workspace:FindFirstChild("PoolFolder")
+if not PoolFolder then
+	local folder = Instance.new("Folder")
+	folder.Name = "PoolFolder"
+	folder.Parent = workspace
+	PoolFolder = folder
 end
-
-local FAR_CFRAME = CFrame.new(0, 10e8, 0)
+assert(PoolFolder)
 
 local Pooler = {}
 Pooler.__index = Pooler
 
-export type Pooler = typeof(setmetatable({ } :: { 
-    Pool: {  BasePart },
-    InUse: {  BasePart },
-    ExpansionSize: number,
-    Parent: Instance,
-    Template: BasePart
+export type Pooler = typeof(setmetatable({} :: {
+	Pool: { BasePart },
+	InUse: { [BasePart]: true },
+	ExpansionSize: number,
+	Parent: Instance,
+	Template: BasePart,
 }, Pooler))
 
-function Pooler.new(object: BasePart, ammount: number?, parent: Instance?): Pooler
-    local self = setmetatable({
-        Pool = {},
-        InUse = {},
-        ExpansionSize = ammount or 100,
-        Parent = parent or PoolFolder,
-        Template = object
-    }, Pooler)
+function Pooler.new(template: BasePart, amount: number?, parent: Instance?): Pooler
+	local self = setmetatable({
+		Pool = {},
+		InUse = {},
+		ExpansionSize = amount or 100,
+		Parent = parent or PoolFolder,
+		Template = template,
+	}, Pooler)
 
-    for i = 1, self.ExpansionSize do    
-        local newPart = Pooler._MakeNewPart(self)
-        table.insert(self.Pool, newPart)
-    end
-
-    return self
+	self:Expand()
+	return self
 end
 
 function Pooler.Pull(self: Pooler): BasePart
-    if #self.Pool == 0 then self:Expand() end
+	if #self.Pool == 0 then
+		self:Expand()
+	end
 
-    local part = self.Pool[#self.Pool]
-    self.Pool[#self.Pool] = nil
+	local part = self.Pool[#self.Pool]
+	self.Pool[#self.Pool] = nil
+	self.InUse[part] = true
 
-    table.insert(self.InUse, part)
-
-    return part
+	return part
 end
 
 function Pooler.Return(self: Pooler, part: BasePart)
-    local index = table.find(self.InUse, part)
+	if not self.InUse[part] then
+		warn("Attempted to return a part that's not in use: " .. part.Name)
+		return
+	end
 
-    if index then
-        table.remove(self.InUse, index)
-        table.insert(self.Pool, part)
-
-        part.CFrame = FAR_CFRAME
-        part.Anchored = true
-    else
-        warn("Attempted to return a part that's not in use!, " .. part.Name)
-    end
-end
-
-function Pooler.Destroy(self: Pooler)
-    for _, v in self.Pool do v:Destroy() end
-    for _, v in self.InUse do v:Destroy() end
-    self.Pool = {}
-    self.InUse = {}
+	self.InUse[part] = nil
+	part.Anchored = true
+	part.CFrame = FAR_CFRAME
+	self.Pool[#self.Pool + 1] = part
 end
 
 function Pooler.Expand(self: Pooler)
-    for i = 1, self.ExpansionSize do
-        local newPart = self:_MakeNewPart()
-        table.insert(self.Pool, newPart)
-    end
+	local parts = table.create(self.ExpansionSize)
+	local cframes = table.create(self.ExpansionSize, FAR_CFRAME)
+
+	for i = 1, self.ExpansionSize do
+		local part = self:_MakeNewPart()
+		parts[i] = part
+		self.Pool[#self.Pool + 1] = part
+	end
+
+	workspace:BulkMoveTo(parts, cframes, Enum.BulkMoveMode.FireCFrameChanged)
+end
+
+function Pooler.Destroy(self: Pooler)
+	for _, part in self.Pool do
+		part:Destroy()
+	end
+	for part in self.InUse do
+		part:Destroy()
+	end
+	table.clear(self.Pool)
+	table.clear(self.InUse)
 end
 
 -- // PRIVATE
 
 function Pooler._MakeNewPart(self: Pooler): BasePart
-    local newPart = self.Template:Clone()
-    newPart.CFrame = FAR_CFRAME
-    newPart.Anchored = true
-    newPart.CanCollide = false
-    newPart.CanTouch = false
-    newPart.CanQuery = false
-    newPart.Parent = self.Parent or PoolFolder
+	local part = self.Template:Clone()
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanTouch = false
+	part.CanQuery = false
+	part.Parent = self.Parent
 
-    return newPart
+	return part
 end
 
 return Pooler
