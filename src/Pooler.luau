@@ -89,6 +89,9 @@ function Pooler._MakeNewPart(self: Pooler): BasePart
     local newPart = self.Template:Clone()
     newPart.CFrame = FAR_CFRAME
     newPart.Anchored = true
+    newPart.CanCollide = false
+    newPart.CanTouch = false
+    newPart.CanQuery = false
     newPart.Parent = self.Parent or PoolFolder
 
     return newPart
