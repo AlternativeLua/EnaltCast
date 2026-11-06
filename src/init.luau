@@ -121,7 +121,7 @@ function Caster.new(): Caster
 		self:_setupActorCommunication()
 	end
 
-	local signal = RunService:IsClient() and RunService.RenderStepped or RunService.Heartbeat
+	local signal = RunService:IsClient() and RunService.PreRender or RunService.Heartbeat
 	table.insert(
 		self._connections,
 		signal:Connect(function(deltaTime: number)
