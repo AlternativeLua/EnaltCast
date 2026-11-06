@@ -33,8 +33,6 @@ function Pooler.new(object: BasePart, ammount: number?, parent: Instance?): Pool
         Template = object
     }, Pooler)
 
-    print(object)
-
     for i = 1, self.ExpansionSize do    
         local newPart = Pooler._MakeNewPart(self)
         table.insert(self.Pool, newPart)
@@ -44,7 +42,6 @@ function Pooler.new(object: BasePart, ammount: number?, parent: Instance?): Pool
 end
 
 function Pooler.Pull(self: Pooler): BasePart
-    print(#self.Pool)
     if #self.Pool == 0 then self:Expand() end
 
     local part = self.Pool[#self.Pool]
