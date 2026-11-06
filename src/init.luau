@@ -89,6 +89,8 @@ export type Caster = typeof(Caster) & {
 	_actorBullets: { [number]: ProjectileData },
 	_actorWorkloads: { [number]: number },
 	_bulletToActorMap: { [number]: number },
+	_newCFrames: { [number]: CFrame },
+	_bulletParts: { [number]: BasePart},
 	_bulletIdCounter: number,
 	_currentActorIndex: number,
 	_useParallel: boolean,
@@ -103,6 +105,8 @@ function Caster.new(): Caster
 	self._actorBullets = {}
 	self._actorWorkloads = {}
 	self._bulletToActorMap = {}
+	self._newCFrames = {}
+	self._bulletParts = {}
 	self._bulletIdCounter = 0
 	self._currentActorIndex = 1
 	self._useParallel = Settings.ParallelProcessing
@@ -267,6 +271,8 @@ function Caster.Destroy(self: Caster)
 	self._actorBullets = {}
 	self._actorWorkloads = {}
 	self._bulletToActorMap = {}
+	self._newCFrames = {}
+	self._bulletParts = {}
 end
 
 --- Casts a projectile.
@@ -410,7 +416,7 @@ function Caster._heartbeat(self: Caster, deltaTime: number)
 	local bullets = self._activeBullets
 	for i = #bullets, 1, -1 do
 		local data = bullets[i]
-		if self:_stepProjectile(data, deltaTime) then
+		if self:_stepProjectile(data, deltaTime, i) then
 			if data.Pooler and data.Bullet then
 				data.Pooler:Return(data.Bullet)
 			elseif data.Bullet then
@@ -422,11 +428,15 @@ function Caster._heartbeat(self: Caster, deltaTime: number)
 			bullets[n] = nil
 		end
 	end
+
+	workspace:BulkMoveTo(self._bulletParts, self._newCFrames)
+	self._newCFrames = {}
+	self._bulletParts = {}
 end
 
 -- Advances a bullet by deltaTime, sub-stepping at UpdateRate so flight and hit
 -- detection stay frame-rate independent while the part still moves every frame.
-function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: number): boolean
+function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: number, index: number): boolean
 	local config = data.Config
 	local force = config.ExtraForce or Vector3.zero
 	local lifetime = config.Lifetime or 5
@@ -487,7 +497,8 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 	local facing = if v.Magnitude > 0 then v.Unit else -Vector3.zAxis
 
 	if data.Bullet then
-		data.Bullet.CFrame = CFrame.lookAlong(data.CurrentPosition, facing)
+		self._bulletParts[index] = data.Bullet
+ 		self._newCFrames[index] = CFrame.lookAlong(data.CurrentPosition, facing)
 	end
 
 	if Settings.Visualise and RunService:IsClient() then
