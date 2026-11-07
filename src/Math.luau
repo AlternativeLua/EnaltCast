@@ -6,10 +6,10 @@
 local Math = {}
 
 local MAX_PROBE = 512
--- Lift ricochets off the surface so the next ray can't re-hit it on grazing shots
-local RICOCHET_OFFSET = 0.01
-local backParams = RaycastParams.new()
-backParams.FilterType = Enum.RaycastFilterType.Include
+-- Max obstacles stepped over while searching for a penetration exit
+local MAX_EXIT_STEPS = 8
+-- Lift the next ray off a surface (ricochet, penetration exit) so it can't re-hit it
+local SURFACE_OFFSET = 0.01
 
 export type HitType = "Impact" | "Humanoid" | "Ricochet" | "Penetration"
 export type Decision = {
@@ -46,6 +46,43 @@ local function findHumanoid(instance: Instance): Humanoid?
 	return nil
 end
 
+-- Finds where a ray leaves `instance` by casting back from beyond it. Uses the
+-- bullet's own params and steps past anything in the way instead of swapping in
+-- an Include filter: RaycastParams can't be modified in parallel.
+local function findExit(instance: BasePart, entry: Vector3, travel: Vector3, params: RaycastParams): Vector3?
+	local probe = math.min(instance.Size.Magnitude, MAX_PROBE)
+	local origin = entry + travel * probe
+	local remaining = probe
+	for _ = 1, MAX_EXIT_STEPS do
+		local hit = workspace:Raycast(origin, -travel * remaining, params)
+		if not hit then
+			return nil
+		end
+		if hit.Instance == instance then
+			return hit.Position
+		end
+		local advance = hit.Distance + SURFACE_OFFSET
+		remaining -= advance
+		if remaining <= 0 then
+			return nil
+		end
+		origin -= travel * advance
+	end
+	return nil
+end
+
+-- After a penetration, returns the new segment end: the travel left in this step
+-- past the exit, scaled by the speed kept.
+function Math.ContinueSegment(entry: Vector3, to: Vector3, resume: Vector3, speedRatio: number): Vector3
+	local segment = to - entry
+	local length = segment.Magnitude
+	if length == 0 then
+		return resume
+	end
+	local left = math.max(length - (resume - entry).Magnitude, 0) * speedRatio
+	return resume + segment / length * left
+end
+
 -- Decides what a bullet does when its segment hits something. Pure aside from
 -- read-only spatial queries, so it is safe to call from parallel actor code.
 function Math.Resolve(
@@ -55,7 +92,8 @@ function Math.Resolve(
 	ricochetAngle: number?,
 	ricochetHardness: number?,
 	penetrationPower: number?,
-	loss: number?
+	loss: number?,
+	params: RaycastParams
 ): Decision
 	local instance = result.Instance
 	local humanoid = instance and findHumanoid(instance)
@@ -78,20 +116,27 @@ function Math.Resolve(
 				Type = "Ricochet",
 				Stop = false,
 				Velocity = reflected,
-				Position = result.Position + normal * RICOCHET_OFFSET,
+				Position = result.Position + normal * SURFACE_OFFSET,
 			}
 		end
 	end
 
 	if penetrationPower and instance and instance ~= workspace.Terrain then
-		local probe = math.min(instance.Size.Magnitude, MAX_PROBE)
-		backParams.FilterDescendantsInstances = { instance }
-		local back = workspace:Raycast(result.Position + travel * probe, -travel * probe, backParams)
-		local exit = back and back.Position or result.Position
-		local cost = (exit - result.Position).Magnitude * hardness
-		if penetrationPower >= cost then
-			local kept = if penetrationPower > 0 then math.sqrt((penetrationPower - cost) / penetrationPower) else 1
-			return { Type = "Penetration", Stop = false, Cost = cost, Velocity = velocity * kept }
+		-- No exit found means we can't measure the part, so treat it as solid
+		local exit = findExit(instance :: BasePart, result.Position, travel, params)
+		if exit then
+			local cost = (exit - result.Position).Magnitude * hardness
+			if penetrationPower >= cost then
+				local kept = if penetrationPower > 0 then math.sqrt((penetrationPower - cost) / penetrationPower) else 1
+				return {
+					Type = "Penetration",
+					Stop = false,
+					Cost = cost,
+					Velocity = velocity * kept,
+					-- Resume just past the exit so the part never needs filtering out
+					Position = exit + travel * SURFACE_OFFSET,
+				}
+			end
 		end
 	end
 

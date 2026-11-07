@@ -33,6 +33,7 @@ local function endRecord(id: number, b: any, handoff: boolean)
 end
 
 actor:BindToMessage("CastBullet", function(p)
+	-- Built here (serial) and never modified again: RaycastParams can't be written in parallel
 	local params = RaycastParams.new()
 	params.FilterType = p.filterType
 	params.FilterDescendantsInstances = p.filter
@@ -48,7 +49,6 @@ actor:BindToMessage("CastBullet", function(p)
 		extraForce = p.extraForce,
 		time = p.time or 0,
 		lifetime = p.lifetime,
-		ignoreList = p.filter,
 		rayParams = params,
 		penetrationPower = p.penetrationPower,
 		ricochetAngle = p.ricochetAngle,
@@ -92,7 +92,6 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 			local to = from + b.velocity * step
 
 			while true do
-				b.rayParams.FilterDescendantsInstances = b.ignoreList
 				local result = workspace:Raycast(from, to - from, b.rayParams)
 				if not result then
 					break
@@ -101,7 +100,8 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 				local hardness = hardnessTable[result.Material] or hardnessTable.Default
 				local decision = Math.Resolve(
 					result, b.velocity, hardness,
-					b.ricochetAngle, b.ricochetHardness, b.penetrationPower, b.loss
+					b.ricochetAngle, b.ricochetHardness, b.penetrationPower, b.loss,
+					b.rayParams
 				)
 				local hitType = decision.Type
 
@@ -111,9 +111,8 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 					local ratio = if speed > 0 then newVelocity.Magnitude / speed else 0
 					b.penetrationPower -= (decision.Cost :: number)
 					b.velocity = newVelocity
-					table.insert(b.ignoreList, result.Instance)
-					from = result.Position
-					to = from + (to - from) * ratio
+					from = decision.Position :: Vector3
+					to = Math.ContinueSegment(result.Position, to, from, ratio)
 				elseif hitType == "Ricochet" then
 					b.velocity = (decision.Velocity :: Vector3)
 					b.position = (decision.Position :: Vector3)

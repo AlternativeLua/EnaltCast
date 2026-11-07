@@ -251,7 +251,6 @@ function Caster._handleActorHits(self: Caster, hits: { any })
 				config.OnRichochet:Fire(result, data)
 			end
 		elseif h.type == "Penetration" then
-			table.insert(data.IgnoreList, h.instance)
 			if config.OnPenetration then
 				config.OnPenetration:Fire(result, data)
 			end
@@ -514,11 +513,11 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 			end
 
 			local speed = data.Velocity.Magnitude
-			local action = self:_resolveHit(data, result)
+			local action, decision = self:_resolveHit(data, result)
 			if action == "penetration" then
 				local ratio = if speed > 0 then data.Velocity.Magnitude / speed else 0
-				from = result.Position
-				to = from + (to - from) * ratio
+				from = decision.Position :: Vector3
+				to = Math.ContinueSegment(result.Position, to, from, ratio)
 			elseif action == "ricochet" then
 				to = data.CurrentPosition
 				break
@@ -553,7 +552,7 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 	return stop
 end
 
-function Caster._resolveHit(self: Caster, data: ProjectileData, result: RaycastResult): string
+function Caster._resolveHit(self: Caster, data: ProjectileData, result: RaycastResult): (string, Math.Decision)
 	local config = data.Config
 	local hardness = Settings.SurfaceHardness[result.Material] or Settings.SurfaceHardness.Default
 	local decision = Math.Resolve(
@@ -563,7 +562,8 @@ function Caster._resolveHit(self: Caster, data: ProjectileData, result: RaycastR
 		config.RichochetAngle,
 		config.RichochetHardness,
 		data.PenetrationPower,
-		config.Loss
+		config.Loss,
+		data.RayParams :: RaycastParams
 	)
 
 	if decision.Type == "Humanoid" then
@@ -573,7 +573,7 @@ function Caster._resolveHit(self: Caster, data: ProjectileData, result: RaycastR
 		if config.OnImpact then
 			config.OnImpact:Fire(result, data)
 		end
-		return "stop"
+		return "stop", decision
 	elseif decision.Type == "Ricochet" then
 		data.Velocity = decision.Velocity :: Vector3
 		data.CurrentPosition = decision.Position :: Vector3
@@ -581,21 +581,20 @@ function Caster._resolveHit(self: Caster, data: ProjectileData, result: RaycastR
 		if config.OnRichochet then
 			config.OnRichochet:Fire(result, data)
 		end
-		return "ricochet"
+		return "ricochet", decision
 	elseif decision.Type == "Penetration" then
 		data.PenetrationPower = (data.PenetrationPower :: number) - (decision.Cost :: number)
 		data.Velocity = decision.Velocity :: Vector3
-		table.insert(data.IgnoreList, result.Instance)
 		if config.OnPenetration then
 			config.OnPenetration:Fire(result, data)
 		end
-		return "penetration"
+		return "penetration", decision
 	end
 
 	if config.OnImpact then
 		config.OnImpact:Fire(result, data)
 	end
-	return "stop"
+	return "stop", decision
 end
 
 return Caster :: Caster

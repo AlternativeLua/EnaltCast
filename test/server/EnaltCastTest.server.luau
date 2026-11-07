@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local EnaltCast = ReplicatedStorage.Packages.EnaltCast
 local Caster = require(EnaltCast).new()
+Caster:SetParallelProcessing(true) -- exercise the actor path while testing
 local LagCompensation = require(EnaltCast.LagCompensation)
 
 local Fire = ReplicatedStorage.EnaltCastTest.Fire :: RemoteEvent
