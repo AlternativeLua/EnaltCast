@@ -29,6 +29,7 @@ actor:BindToMessage("CastBullet", function(p)
 	params.CollisionGroup = p.collisionGroup
 
 	bullets[p.bulletId] = {
+		casterId = p.casterId,
 		bullet = p.bullet,
 		position = p.origin,
 		velocity = p.velocity,
@@ -44,12 +45,14 @@ actor:BindToMessage("CastBullet", function(p)
 	}
 end)
 
-actor:BindToMessage("Cleanup", function()
-	bullets = {}
+actor:BindToMessage("Cleanup", function(ids: { number })
+	for _, id in ids do
+		bullets[id] = nil
+	end
 end)
 
 RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
-	local updates: { any }?, hits: { any }?, ended: { number }?
+	local updates: { any }?, hits: { any }?, ended: { any }?
 	local maxStep = 1 / Settings.UpdateRate
 
 	for id, b in bullets do
@@ -82,6 +85,7 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 				hits = hits or {}
 				table.insert(hits, {
 					bulletId = id,
+					casterId = b.casterId,
 					type = decision.Type,
 					humanoid = decision.Humanoid,
 					position = result.Position,
@@ -129,7 +133,7 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 
 		if stop then
 			ended = ended or {}
-			table.insert(ended, id)
+			table.insert(ended, { bulletId = id, casterId = b.casterId })
 			bullets[id] = nil
 		end
 	end

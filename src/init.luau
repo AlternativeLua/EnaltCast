@@ -30,6 +30,9 @@ local CommHit: BindableEvent
 local CommEnd: BindableEvent
 local ActorsCreated = false
 
+local NextBulletId = 0
+local NextCasterId = 0
+
 -- Actors run their own Script under a non-replicated container (ServerScriptService
 -- on the server, the local player's PlayerScripts on the client) so they actually
 -- execute and never leak across the network boundary.
@@ -91,7 +94,7 @@ export type Caster = typeof(Caster) & {
 	_bulletToActorMap: { [number]: number },
 	_newCFrames: { [number]: CFrame },
 	_bulletParts: { [number]: BasePart},
-	_bulletIdCounter: number,
+	_id: number,
 	_currentActorIndex: number,
 	_useParallel: boolean,
 	_commReady: boolean,
@@ -107,7 +110,8 @@ function Caster.new(): Caster
 	self._bulletToActorMap = {}
 	self._newCFrames = {}
 	self._bulletParts = {}
-	self._bulletIdCounter = 0
+	NextCasterId += 1
+	self._id = NextCasterId
 	self._currentActorIndex = 1
 	self._useParallel = Settings.ParallelProcessing
 	self._commReady = false
@@ -174,6 +178,7 @@ function Caster._actorPayload(self: Caster, id: number, data: ProjectileData)
 	local rp = config.RayParams
 	return {
 		bulletId = id,
+		casterId = self._id,
 		bullet = data.Bullet,
 		origin = data.CurrentPosition,
 		velocity = data.Velocity,
@@ -194,6 +199,9 @@ end
 
 function Caster._handleActorHits(self: Caster, hits: { any })
 	for _, h in hits do
+		if h.casterId ~= self._id then
+			continue
+		end
 		local data = self._actorBullets[h.bulletId]
 		if not data then
 			continue
@@ -233,8 +241,12 @@ function Caster._handleActorHits(self: Caster, hits: { any })
 	end
 end
 
-function Caster._handleActorEnds(self: Caster, ids: { number })
-	for _, id in ids do
+function Caster._handleActorEnds(self: Caster, ends: { any })
+	for _, e in ends do
+		if e.casterId ~= self._id then
+			continue
+		end
+		local id = e.bulletId
 		local data = self._actorBullets[id]
 		if data then
 			if data.Pooler and data.Bullet then
@@ -253,17 +265,44 @@ function Caster._handleActorEnds(self: Caster, ids: { number })
 	end
 end
 
+function Caster._dispatchToActor(self: Caster, data: ProjectileData)
+	NextBulletId += 1
+	local id = NextBulletId
+	self._actorBullets[id] = data
+
+	local actorIndex = self:_pickActor()
+	self._actorWorkloads[actorIndex] += 1
+	self._bulletToActorMap[id] = actorIndex
+
+	BulletActors[actorIndex]:SendMessage("CastBullet", self:_actorPayload(id, data))
+end
+
+function Caster._cleanupActorBullets(self: Caster)
+	local perActor: { [number]: { number } } = {}
+	for id, actorIndex in self._bulletToActorMap do
+		local ids = perActor[actorIndex]
+		if not ids then
+			ids = {}
+			perActor[actorIndex] = ids
+		end
+		table.insert(ids, id)
+	end
+
+	for actorIndex, ids in perActor do
+		local actor = BulletActors[actorIndex]
+		if actor then
+			actor:SendMessage("Cleanup", ids)
+		end
+	end
+end
+
 function Caster.Destroy(self: Caster)
 	for _, connection in self._connections do
 		connection:Disconnect()
 	end
 
 	if self._useParallel then
-		for i = 1, Settings.ActorAmount do
-			if BulletActors[i] then
-				BulletActors[i]:SendMessage("Cleanup")
-			end
-		end
+		self:_cleanupActorBullets()
 	end
 
 	self._connections = {}
@@ -319,15 +358,7 @@ function Caster.Cast(
 	}
 
 	if self._useParallel then
-		self._bulletIdCounter += 1
-		local id = self._bulletIdCounter
-		self._actorBullets[id] = data
-
-		local actorIndex = self:_pickActor()
-		self._actorWorkloads[actorIndex] += 1
-		self._bulletToActorMap[id] = actorIndex
-
-		BulletActors[actorIndex]:SendMessage("CastBullet", self:_actorPayload(id, data))
+		self:_dispatchToActor(data)
 	else
 		table.insert(self._activeBullets, data)
 	end
@@ -371,24 +402,11 @@ function Caster.SetParallelProcessing(self: Caster, useParallel: boolean)
 		self:_setupActorCommunication()
 
 		for i = #self._activeBullets, 1, -1 do
-			local data = self._activeBullets[i]
-			self._bulletIdCounter += 1
-			local id = self._bulletIdCounter
-			self._actorBullets[id] = data
-
-			local actorIndex = self:_pickActor()
-			self._actorWorkloads[actorIndex] += 1
-			self._bulletToActorMap[id] = actorIndex
-
-			BulletActors[actorIndex]:SendMessage("CastBullet", self:_actorPayload(id, data))
+			self:_dispatchToActor(self._activeBullets[i])
 			self._activeBullets[i] = nil
 		end
 	else
-		for i = 1, Settings.ActorAmount do
-			if BulletActors[i] then
-				BulletActors[i]:SendMessage("Cleanup")
-			end
-		end
+		self:_cleanupActorBullets()
 
 		for _, data in self._actorBullets do
 			table.insert(self._activeBullets, data)
