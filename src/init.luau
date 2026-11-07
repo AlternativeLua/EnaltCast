@@ -41,6 +41,18 @@ local function applyActorState(data: Types.ProjectileData, s: any)
 	data.PenetrationPower = s.power
 end
 
+local function releaseBullet(data: Types.ProjectileData)
+	local part = data.Bullet
+	if not part then
+		return
+	end
+	if data.Pooler then
+		data.Pooler:Return(part)
+	else
+		part:Destroy()
+	end
+end
+
 -- Actors run their own Script under a non-replicated container (ServerScriptService
 -- on the server, the local player's PlayerScripts on the client) so they actually
 -- execute and never leak across the network boundary.
@@ -279,10 +291,8 @@ function Caster._handleActorEnds(self: Caster, ends: { any })
 			else
 				table.insert(self._activeBullets, data)
 			end
-		elseif data.Pooler and data.Bullet then
-			data.Pooler:Return(data.Bullet)
-		elseif data.Bullet then
-			data.Bullet:Destroy()
+		else
+			releaseBullet(data)
 		end
 	end
 end
@@ -324,8 +334,13 @@ function Caster.Destroy(self: Caster)
 		connection:Disconnect()
 	end
 
-	if self._useParallel then
-		self:_cleanupActorBullets(false)
+	self:_cleanupActorBullets(false)
+
+	for _, data in self._activeBullets do
+		releaseBullet(data)
+	end
+	for _, data in self._actorBullets do
+		releaseBullet(data)
 	end
 
 	self._connections = {}
@@ -448,11 +463,7 @@ function Caster._heartbeat(self: Caster, deltaTime: number)
 	for i = #bullets, 1, -1 do
 		local data = bullets[i]
 		if self:_stepProjectile(data, deltaTime, i) then
-			if data.Pooler and data.Bullet then
-				data.Pooler:Return(data.Bullet)
-			elseif data.Bullet then
-				data.Bullet:Destroy()
-			end
+			releaseBullet(data)
 
 			local n = #bullets
 			bullets[i] = bullets[n]
