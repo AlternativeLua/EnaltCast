@@ -31,6 +31,18 @@ function Math.CloneRayParams(src: RaycastParams): RaycastParams
 	return p
 end
 
+local function findHumanoid(instance: Instance): Humanoid?
+	local model = instance:FindFirstAncestorOfClass("Model")
+	while model do
+		local humanoid = model:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			return humanoid
+		end
+		model = model:FindFirstAncestorOfClass("Model")
+	end
+	return nil
+end
+
 -- Decides what a bullet does when its segment hits something. Pure aside from
 -- read-only spatial queries, so it is safe to call from parallel actor code.
 function Math.Resolve(
@@ -43,12 +55,9 @@ function Math.Resolve(
 	loss: number?
 ): Decision
 	local instance = result.Instance
-	local model = instance and instance:FindFirstAncestorOfClass("Model")
-	if model then
-		local humanoid = model:FindFirstChildOfClass("Humanoid")
-		if humanoid then
-			return { Type = "Humanoid", Stop = true, Humanoid = humanoid }
-		end
+	local humanoid = instance and findHumanoid(instance)
+	if humanoid then
+		return { Type = "Humanoid", Stop = true, Humanoid = humanoid }
 	end
 
 	local speed = velocity.Magnitude
