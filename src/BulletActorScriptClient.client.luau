@@ -116,8 +116,8 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 					to = from + (to - from) * ratio
 				elseif hitType == "Ricochet" then
 					b.velocity = (decision.Velocity :: Vector3)
-					b.position = result.Position
-					to = result.Position
+					b.position = (decision.Position :: Vector3)
+					to = b.position
 				else
 					to = result.Position
 					stop = true
@@ -129,7 +129,8 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 					casterId = b.casterId,
 					type = hitType,
 					humanoid = decision.Humanoid,
-					position = result.Position,
+					hitPosition = result.Position,
+					position = decision.Position or result.Position,
 					normal = result.Normal,
 					instance = result.Instance,
 					material = result.Material,

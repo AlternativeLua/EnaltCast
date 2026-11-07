@@ -6,6 +6,8 @@
 local Math = {}
 
 local MAX_PROBE = 512
+-- Lift ricochets off the surface so the next ray can't re-hit it on grazing shots
+local RICOCHET_OFFSET = 0.01
 local backParams = RaycastParams.new()
 backParams.FilterType = Enum.RaycastFilterType.Include
 
@@ -15,6 +17,7 @@ export type Decision = {
 	Stop: boolean,
 	Humanoid: Humanoid?,
 	Velocity: Vector3?,
+	Position: Vector3?,
 	Cost: number?,
 }
 
@@ -71,7 +74,12 @@ function Math.Resolve(
 			if loss then
 				reflected *= 1 - loss
 			end
-			return { Type = "Ricochet", Stop = false, Velocity = reflected }
+			return {
+				Type = "Ricochet",
+				Stop = false,
+				Velocity = reflected,
+				Position = result.Position + normal * RICOCHET_OFFSET,
+			}
 		end
 	end
 

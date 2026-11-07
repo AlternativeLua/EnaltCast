@@ -230,7 +230,7 @@ function Caster._handleActorHits(self: Caster, hits: { any })
 		local config = data.Config
 		local result = {
 			Instance = h.instance,
-			Position = h.position,
+			Position = h.hitPosition,
 			Normal = h.normal,
 			Material = h.material,
 			Distance = h.distance,
@@ -260,7 +260,7 @@ function Caster._handleActorHits(self: Caster, hits: { any })
 		end
 
 		if Settings.Visualise then
-			Visualiser.VisualiseHit(CFrame.new(h.position))
+			Visualiser.VisualiseHit(CFrame.new(h.hitPosition))
 		end
 	end
 end
@@ -576,8 +576,8 @@ function Caster._resolveHit(self: Caster, data: ProjectileData, result: RaycastR
 		return "stop"
 	elseif decision.Type == "Ricochet" then
 		data.Velocity = decision.Velocity :: Vector3
-		data.CurrentPosition = result.Position
-		data.Origin = result.Position
+		data.CurrentPosition = decision.Position :: Vector3
+		data.Origin = decision.Position :: Vector3
 		if config.OnRichochet then
 			config.OnRichochet:Fire(result, data)
 		end
