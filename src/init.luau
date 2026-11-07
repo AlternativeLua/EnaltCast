@@ -471,9 +471,12 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 				break
 			end
 
+			local speed = data.Velocity.Magnitude
 			local action = self:_resolveHit(data, result)
 			if action == "penetration" then
+				local ratio = if speed > 0 then data.Velocity.Magnitude / speed else 0
 				from = result.Position
+				to = from + (to - from) * ratio
 			elseif action == "ricochet" then
 				to = data.CurrentPosition
 				break
@@ -539,6 +542,7 @@ function Caster._resolveHit(self: Caster, data: ProjectileData, result: RaycastR
 		return "ricochet"
 	elseif decision.Type == "Penetration" then
 		data.PenetrationPower = (data.PenetrationPower :: number) - (decision.Cost :: number)
+		data.Velocity = decision.Velocity :: Vector3
 		table.insert(data.IgnoreList, result.Instance)
 		if config.OnPenetration then
 			config.OnPenetration:Fire(result, data)

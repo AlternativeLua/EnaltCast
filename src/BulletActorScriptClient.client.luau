@@ -94,7 +94,12 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 				if decision.Type == "Penetration" then
 					b.penetrationPower -= (decision.Cost :: number)
 					table.insert(b.ignoreList, result.Instance)
+					local speed = b.velocity.Magnitude
+					local newVelocity = decision.Velocity :: Vector3
+					local ratio = if speed > 0 then newVelocity.Magnitude / speed else 0
+					b.velocity = newVelocity
 					from = result.Position
+					to = from + (to - from) * ratio
 				elseif decision.Type == "Ricochet" then
 					b.velocity = (decision.Velocity :: Vector3)
 					b.position = result.Position

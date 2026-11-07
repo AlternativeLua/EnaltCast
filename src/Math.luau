@@ -73,7 +73,8 @@ function Math.Resolve(
 		local exit = back and back.Position or result.Position
 		local cost = (exit - result.Position).Magnitude * hardness
 		if penetrationPower >= cost then
-			return { Type = "Penetration", Stop = false, Cost = cost }
+			local kept = if penetrationPower > 0 then math.sqrt((penetrationPower - cost) / penetrationPower) else 1
+			return { Type = "Penetration", Stop = false, Cost = cost, Velocity = velocity * kept }
 		end
 	end
 
