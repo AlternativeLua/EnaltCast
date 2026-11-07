@@ -33,6 +33,14 @@ local ActorsCreated = false
 local NextBulletId = 0
 local NextCasterId = 0
 
+local function applyActorState(data: Types.ProjectileData, s: any)
+	data.CurrentPosition = s.position
+	data.Velocity = s.velocity
+	data.CurrentDirection = s.velocity
+	data.Time = s.time
+	data.PenetrationPower = s.power
+end
+
 -- Actors run their own Script under a non-replicated container (ServerScriptService
 -- on the server, the local player's PlayerScripts on the client) so they actually
 -- execute and never leak across the network boundary.
@@ -216,6 +224,8 @@ function Caster._handleActorHits(self: Caster, hits: { any })
 			Distance = h.distance,
 		} :: any
 
+		applyActorState(data, h)
+
 		if h.type == "Humanoid" then
 			if config.OnHumanoidHit then
 				config.OnHumanoidHit:Fire(result, data, h.humanoid)
@@ -224,10 +234,12 @@ function Caster._handleActorHits(self: Caster, hits: { any })
 				config.OnImpact:Fire(result, data)
 			end
 		elseif h.type == "Ricochet" then
+			data.Origin = h.position
 			if config.OnRichochet then
 				config.OnRichochet:Fire(result, data)
 			end
 		elseif h.type == "Penetration" then
+			table.insert(data.IgnoreList, h.instance)
 			if config.OnPenetration then
 				config.OnPenetration:Fire(result, data)
 			end
@@ -248,13 +260,6 @@ function Caster._handleActorEnds(self: Caster, ends: { any })
 		end
 		local id = e.bulletId
 		local data = self._actorBullets[id]
-		if data then
-			if data.Pooler and data.Bullet then
-				data.Pooler:Return(data.Bullet)
-			elseif data.Bullet then
-				data.Bullet:Destroy()
-			end
-		end
 
 		local actorIndex = self._bulletToActorMap[id]
 		if actorIndex then
@@ -262,6 +267,23 @@ function Caster._handleActorEnds(self: Caster, ends: { any })
 			self._bulletToActorMap[id] = nil
 		end
 		self._actorBullets[id] = nil
+
+		if not data then
+			continue
+		end
+		applyActorState(data, e)
+
+		if e.handoff then
+			if self._useParallel then
+				self:_dispatchToActor(data)
+			else
+				table.insert(self._activeBullets, data)
+			end
+		elseif data.Pooler and data.Bullet then
+			data.Pooler:Return(data.Bullet)
+		elseif data.Bullet then
+			data.Bullet:Destroy()
+		end
 	end
 end
 
@@ -277,7 +299,8 @@ function Caster._dispatchToActor(self: Caster, data: ProjectileData)
 	BulletActors[actorIndex]:SendMessage("CastBullet", self:_actorPayload(id, data))
 end
 
-function Caster._cleanupActorBullets(self: Caster)
+-- With handoff, actors reply with each bullet's live state via the end event.
+function Caster._cleanupActorBullets(self: Caster, handoff: boolean)
 	local perActor: { [number]: { number } } = {}
 	for id, actorIndex in self._bulletToActorMap do
 		local ids = perActor[actorIndex]
@@ -291,7 +314,7 @@ function Caster._cleanupActorBullets(self: Caster)
 	for actorIndex, ids in perActor do
 		local actor = BulletActors[actorIndex]
 		if actor then
-			actor:SendMessage("Cleanup", ids)
+			actor:SendMessage("Cleanup", ids, handoff)
 		end
 	end
 end
@@ -302,7 +325,7 @@ function Caster.Destroy(self: Caster)
 	end
 
 	if self._useParallel then
-		self:_cleanupActorBullets()
+		self:_cleanupActorBullets(false)
 	end
 
 	self._connections = {}
@@ -406,17 +429,7 @@ function Caster.SetParallelProcessing(self: Caster, useParallel: boolean)
 			self._activeBullets[i] = nil
 		end
 	else
-		self:_cleanupActorBullets()
-
-		for _, data in self._actorBullets do
-			table.insert(self._activeBullets, data)
-		end
-
-		self._actorBullets = {}
-		self._bulletToActorMap = {}
-		for i = 1, Settings.ActorAmount do
-			self._actorWorkloads[i] = 0
-		end
+		self:_cleanupActorBullets(true)
 	end
 
 	self._useParallel = useParallel

@@ -20,6 +20,18 @@ local MAX_FRAME = 0.1
 local hardnessTable: any = Settings.SurfaceHardness
 local bullets: { [number]: any } = {}
 
+local function endRecord(id: number, b: any, handoff: boolean)
+	return {
+		bulletId = id,
+		casterId = b.casterId,
+		handoff = handoff,
+		position = b.position,
+		velocity = b.velocity,
+		time = b.time,
+		power = b.penetrationPower,
+	}
+end
+
 actor:BindToMessage("CastBullet", function(p)
 	local params = RaycastParams.new()
 	params.FilterType = p.filterType
@@ -45,9 +57,19 @@ actor:BindToMessage("CastBullet", function(p)
 	}
 end)
 
-actor:BindToMessage("Cleanup", function(ids: { number })
+actor:BindToMessage("Cleanup", function(ids: { number }, handoff: boolean?)
+	local handed: { any } = {}
 	for _, id in ids do
-		bullets[id] = nil
+		local b = bullets[id]
+		if b then
+			bullets[id] = nil
+			if handoff then
+				table.insert(handed, endRecord(id, b, true))
+			end
+		end
+	end
+	if #handed > 0 then
+		endEvent:Fire(handed)
 	end
 end)
 
@@ -81,37 +103,43 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 					result, b.velocity, hardness,
 					b.ricochetAngle, b.ricochetHardness, b.penetrationPower, b.loss
 				)
+				local hitType = decision.Type
+
+				if hitType == "Penetration" then
+					local speed = b.velocity.Magnitude
+					local newVelocity = decision.Velocity :: Vector3
+					local ratio = if speed > 0 then newVelocity.Magnitude / speed else 0
+					b.penetrationPower -= (decision.Cost :: number)
+					b.velocity = newVelocity
+					table.insert(b.ignoreList, result.Instance)
+					from = result.Position
+					to = from + (to - from) * ratio
+				elseif hitType == "Ricochet" then
+					b.velocity = (decision.Velocity :: Vector3)
+					b.position = result.Position
+					to = result.Position
+				else
+					to = result.Position
+					stop = true
+				end
 
 				hits = hits or {}
 				table.insert(hits, {
 					bulletId = id,
 					casterId = b.casterId,
-					type = decision.Type,
+					type = hitType,
 					humanoid = decision.Humanoid,
 					position = result.Position,
 					normal = result.Normal,
 					instance = result.Instance,
 					material = result.Material,
 					distance = result.Distance,
+					velocity = b.velocity,
+					time = b.time,
+					power = b.penetrationPower,
 				})
 
-				if decision.Type == "Penetration" then
-					b.penetrationPower -= (decision.Cost :: number)
-					table.insert(b.ignoreList, result.Instance)
-					local speed = b.velocity.Magnitude
-					local newVelocity = decision.Velocity :: Vector3
-					local ratio = if speed > 0 then newVelocity.Magnitude / speed else 0
-					b.velocity = newVelocity
-					from = result.Position
-					to = from + (to - from) * ratio
-				elseif decision.Type == "Ricochet" then
-					b.velocity = (decision.Velocity :: Vector3)
-					b.position = result.Position
-					to = result.Position
-					break
-				else
-					to = result.Position
-					stop = true
+				if hitType ~= "Penetration" then
 					break
 				end
 			end
@@ -133,7 +161,7 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 
 		if stop then
 			ended = ended or {}
-			table.insert(ended, { bulletId = id, casterId = b.casterId })
+			table.insert(ended, endRecord(id, b, false))
 			bullets[id] = nil
 		end
 	end
