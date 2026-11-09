@@ -9,4 +9,3 @@ realm = "shared"
 exclude = ["Packages", "test", "wally.lock", "sourcemap.json", "test.project.json", "rokit.toml", "aftman.toml"]
 
 [dependencies]
-fastsignal = "lucasmzreal/fastsignal@10.4.0"

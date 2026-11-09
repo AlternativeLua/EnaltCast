@@ -12,7 +12,7 @@ local Visualiser = require(script.Visualiser)
 local Settings = require(script.Settings)
 local Math = require(script.Math)
 local LagCompensation = require(script.LagCompensation)
-local FastSignal = require(script.Parent.fastsignal)
+local Zignal = require(script.Zignal)
 local Pooler = require(script.Pooler)
 
 local Caster = {}
@@ -405,8 +405,8 @@ function Caster.GetBulletFolderAsync(self: Caster): Folder
 	return BulletFolder or workspace:WaitForChild("BulletsFolder")
 end
 
-function Caster.NewSignal<T1, T2, T3>(self: Caster): FastSignal.ScriptSignal<T1, T2, T3?>
-	return FastSignal.new()
+function Caster.NewSignal<T...>(self: Caster): Zignal.Signal<T...>
+	return Zignal.new()
 end
 
 function Caster.NewPooler(self: Caster, ...)

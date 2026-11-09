@@ -1,4 +1,4 @@
-local FastSignal = require(script.Parent.Parent.fastsignal)
+local Zignal = require(script.Parent.Zignal)
 local Pooler = require(script.Parent.Pooler)
 
 export type CastConfig = {
@@ -17,10 +17,10 @@ export type CastConfig = {
 	LagCompensation: boolean?,
 	RewindTime: number?, --> client Workspace:GetServerTimeNow() at the shot
 
-	OnImpact: FastSignal.ScriptSignal<RaycastResult, ProjectileData>,
-	OnPenetration: FastSignal.ScriptSignal<RaycastResult, ProjectileData>,
-	OnRichochet: FastSignal.ScriptSignal<RaycastResult, ProjectileData>,
-	OnHumanoidHit: FastSignal.ScriptSignal<RaycastResult, ProjectileData, Humanoid>,
+	OnImpact: Zignal.Signal<RaycastResult, ProjectileData>,
+	OnPenetration: Zignal.Signal<RaycastResult, ProjectileData>,
+	OnRichochet: Zignal.Signal<RaycastResult, ProjectileData>,
+	OnHumanoidHit: Zignal.Signal<RaycastResult, ProjectileData, Humanoid>,
 }
 
 export type ProjectileData = {

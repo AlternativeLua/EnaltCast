@@ -81,7 +81,7 @@ end)
 `RicochetAngle: number?`: The angle at which the projectile can ricochet \
 `RicochetHardness: number?`: How hard the surface should be to ricochet 
 
-`OnImpact: FastSignal.ScriptSignal<RaycastResult, ProjectileData>`: This signal gets fired when the projectile hits something
+`OnImpact: Zignal.Signal<RaycastResult, ProjectileData>`: This signal gets fired when the projectile hits something
 
 ## Class
 ### Functions
