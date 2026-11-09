@@ -28,6 +28,7 @@ local function endRecord(id: number, b: any, handoff: boolean)
 		position = b.position,
 		velocity = b.velocity,
 		time = b.time,
+		travelled = b.travelled,
 		power = b.penetrationPower,
 	}
 end
@@ -48,6 +49,7 @@ actor:BindToMessage("CastBullet", function(p)
 		velocity = p.velocity,
 		extraForce = p.extraForce,
 		time = p.time or 0,
+		travelled = p.travelled or 0,
 		lifetime = p.lifetime,
 		rayParams = params,
 		penetrationPower = p.penetrationPower,
@@ -97,6 +99,10 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 					break
 				end
 
+				b.travelled += (result.Position - from).Magnitude
+				from = result.Position
+				local travelledAtHit = b.travelled
+
 				local hardness = hardnessTable[result.Material] or hardnessTable.Default
 				local decision = Math.Resolve(
 					result, b.velocity, hardness,
@@ -112,10 +118,13 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 					b.penetrationPower -= (decision.Cost :: number)
 					b.velocity = newVelocity
 					from = decision.Position :: Vector3
+					b.travelled += (from - result.Position).Magnitude
 					to = Math.ContinueSegment(result.Position, to, from, ratio)
 				elseif hitType == "Ricochet" then
 					b.velocity = (decision.Velocity :: Vector3)
 					b.position = (decision.Position :: Vector3)
+					b.travelled += (b.position - result.Position).Magnitude
+					from = b.position
 					to = b.position
 				else
 					to = result.Position
@@ -136,6 +145,7 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 					distance = result.Distance,
 					velocity = b.velocity,
 					time = b.time,
+					travelled = travelledAtHit,
 					power = b.penetrationPower,
 				})
 
@@ -144,6 +154,7 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 				end
 			end
 
+			b.travelled += (to - from).Magnitude
 			b.position = to
 			if stop or b.time >= b.lifetime then
 				stop = true

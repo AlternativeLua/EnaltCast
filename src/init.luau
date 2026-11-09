@@ -38,6 +38,7 @@ local function applyActorState(data: Types.ProjectileData, s: any)
 	data.Velocity = s.velocity
 	data.CurrentDirection = s.velocity
 	data.Time = s.time
+	data.DistanceTravelled = s.travelled
 	data.PenetrationPower = s.power
 end
 
@@ -205,6 +206,7 @@ function Caster._actorPayload(self: Caster, id: number, data: ProjectileData)
 		extraForce = config.ExtraForce or Vector3.zero,
 		lifetime = config.Lifetime or 5,
 		time = data.Time,
+		travelled = data.DistanceTravelled,
 		filter = table.clone(data.IgnoreList),
 		filterType = rp.FilterType,
 		ignoreWater = rp.IgnoreWater,
@@ -383,6 +385,7 @@ function Caster.Cast(
 		Origin = origin,
 		Direction = direction,
 		Time = 0,
+		DistanceTravelled = 0,
 		RewindTime = config.RewindTime,
 		CurrentPosition = origin,
 		CurrentDirection = direction,
@@ -512,13 +515,19 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 				break
 			end
 
+			data.DistanceTravelled += (result.Position - from).Magnitude
+			from = result.Position
+
 			local speed = data.Velocity.Magnitude
 			local action, decision = self:_resolveHit(data, result)
 			if action == "penetration" then
 				local ratio = if speed > 0 then data.Velocity.Magnitude / speed else 0
 				from = decision.Position :: Vector3
+				data.DistanceTravelled += (from - result.Position).Magnitude
 				to = Math.ContinueSegment(result.Position, to, from, ratio)
 			elseif action == "ricochet" then
+				data.DistanceTravelled += (data.CurrentPosition - result.Position).Magnitude
+				from = data.CurrentPosition
 				to = data.CurrentPosition
 				break
 			else
@@ -528,6 +537,7 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 			end
 		end
 
+		data.DistanceTravelled += (to - from).Magnitude
 		data.CurrentPosition = to
 		data.CurrentDirection = data.Velocity
 

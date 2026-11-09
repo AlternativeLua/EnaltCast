@@ -30,6 +30,7 @@ export type ProjectileData = {
 	CurrentPosition: Vector3,
 	CurrentDirection: Vector3,
 	Velocity: Vector3,
+	DistanceTravelled: number,
 	Time: number,
 	RewindTime: number?,
 	IgnoreList: { Instance },
