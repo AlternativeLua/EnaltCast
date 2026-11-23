@@ -26,9 +26,10 @@ BulletFolder.Name = "BulletsFolder"
 BulletFolder.Parent = workspace
 
 local BulletActors: { Actor } = {}
+local ActorHolder: Folder? = nil
+local ActorTemplate: Instance? = nil
 local CommHit: BindableEvent
 local CommEnd: BindableEvent
-local ActorsCreated = false
 
 local NextBulletId = 0
 local NextCasterId = 0
@@ -57,34 +58,35 @@ end
 -- Actors run their own Script under a non-replicated container (ServerScriptService
 -- on the server, the local player's PlayerScripts on the client) so they actually
 -- execute and never leak across the network boundary.
-local function ensureActors()
-	if ActorsCreated then
-		return
+-- The actor pool is shared by every caster; it grows to the largest ActorAmount
+-- any caster asks for, and each caster only uses the first ActorAmount actors.
+local function ensureActors(count: number)
+	if not ActorHolder then
+		local container: Instance
+		if RunService:IsServer() then
+			container = game:GetService("ServerScriptService")
+			ActorTemplate = script:FindFirstChild("BulletActorScriptServer")
+		else
+			container = game:GetService("Players").LocalPlayer:WaitForChild("PlayerScripts")
+			ActorTemplate = script:FindFirstChild("BulletActorScriptClient")
+		end
+
+		local holder = Instance.new("Folder")
+		holder.Name = "EnaltCastRuntime"
+
+		CommHit = Instance.new("BindableEvent")
+		CommHit.Name = "BulletHit"
+		CommHit.Parent = holder
+
+		CommEnd = Instance.new("BindableEvent")
+		CommEnd.Name = "BulletEnd"
+		CommEnd.Parent = holder
+
+		holder.Parent = container
+		ActorHolder = holder
 	end
-	ActorsCreated = true
 
-	local container: Instance
-	local template: Instance?
-	if RunService:IsServer() then
-		container = game:GetService("ServerScriptService")
-		template = script:FindFirstChild("BulletActorScriptServer")
-	else
-		container = game:GetService("Players").LocalPlayer:WaitForChild("PlayerScripts")
-		template = script:FindFirstChild("BulletActorScriptClient")
-	end
-
-	local holder = Instance.new("Folder")
-	holder.Name = "EnaltCastRuntime"
-
-	CommHit = Instance.new("BindableEvent")
-	CommHit.Name = "BulletHit"
-	CommHit.Parent = holder
-
-	CommEnd = Instance.new("BindableEvent")
-	CommEnd.Name = "BulletEnd"
-	CommEnd.Parent = holder
-
-	for i = 1, Settings.ActorAmount do
+	for i = #BulletActors + 1, count do
 		local actor = Instance.new("Actor")
 		actor.Name = "BulletActor" .. i
 
@@ -93,17 +95,54 @@ local function ensureActors()
 		moduleRef.Value = script
 		moduleRef.Parent = actor
 
-		if template then
-			template:Clone().Parent = actor
+		if ActorTemplate then
+			ActorTemplate:Clone().Parent = actor
 		end
 
-		actor.Parent = holder
+		actor.Parent = ActorHolder
 		BulletActors[i] = actor
 	end
-
-	holder.Parent = container
 end
 
+-- Builds this caster's settings: defaults from the Settings module with the
+-- overrides on top. SurfaceHardness is merged entry by entry so overriding one
+-- material keeps the rest (and Default).
+local function resolveSettings(overrides: Types.CasterSettings?): Types.ResolvedSettings
+	local resolved = table.clone(Settings) :: any
+	resolved.SurfaceHardness = table.clone(Settings.SurfaceHardness)
+
+	if overrides then
+		for key, value in overrides :: any do
+			if Settings[key] == nil then
+				warn(`EnaltCast: unknown setting "{tostring(key)}" ignored`)
+			elseif key == "SurfaceHardness" then
+				for material, hardness in value do
+					resolved.SurfaceHardness[material] = hardness
+				end
+			else
+				resolved[key] = value
+			end
+		end
+	end
+
+	assert(resolved.UpdateRate > 0, "EnaltCast: UpdateRate must be greater than 0")
+	assert(resolved.ActorAmount >= 1, "EnaltCast: ActorAmount must be at least 1")
+	resolved.ActorAmount = math.floor(resolved.ActorAmount)
+
+	return resolved
+end
+
+-- Enum keys don't survive Actor:SendMessage, so actors get hardness by material name
+local function hardnessByName(hardness: { [any]: number }): { [string]: number }
+	local byName = {}
+	for material, value in hardness do
+		byName[if typeof(material) == "EnumItem" then material.Name else tostring(material)] = value
+	end
+	return byName
+end
+
+type CasterSettings = Types.CasterSettings
+type ResolvedSettings = Types.ResolvedSettings
 type CastConfig = Types.CastConfig
 type ProjectileData = Types.ProjectileData
 type Pooler = Pooler.Pooler
@@ -116,13 +155,23 @@ export type Caster = typeof(Caster) & {
 	_newCFrames: { [number]: CFrame },
 	_bulletParts: { [number]: BasePart},
 	_id: number,
+	_settings: ResolvedSettings,
+	_actorHardness: { [string]: number },
 	_currentActorIndex: number,
 	_useParallel: boolean,
 	_commReady: boolean,
 }
 
-function Caster.new(): Caster
+function Caster.new(settings: CasterSettings?): Caster
 	local self: Caster = setmetatable({}, Caster) :: any
+
+	local resolved = resolveSettings(settings)
+	self._settings = resolved
+	self._actorHardness = hardnessByName(resolved.SurfaceHardness)
+
+	if IS_SERVER and resolved.LagCompensation then
+		LagCompensation.EnsureHistory(resolved.LagCompensationHistory)
+	end
 
 	self._connections = {}
 	self._activeBullets = {}
@@ -134,15 +183,15 @@ function Caster.new(): Caster
 	NextCasterId += 1
 	self._id = NextCasterId
 	self._currentActorIndex = 1
-	self._useParallel = Settings.ParallelProcessing
+	self._useParallel = resolved.ParallelProcessing
 	self._commReady = false
 
-	for i = 1, Settings.ActorAmount do
+	for i = 1, resolved.ActorAmount do
 		self._actorWorkloads[i] = 0
 	end
 
 	if self._useParallel then
-		ensureActors()
+		ensureActors(resolved.ActorAmount)
 		self:_setupActorCommunication()
 	end
 
@@ -178,14 +227,15 @@ function Caster._setupActorCommunication(self: Caster)
 end
 
 function Caster._pickActor(self: Caster): number
-	if Settings.LoadBalanceStrategy == "RoundRobin" then
+	local settings = self._settings
+	if settings.LoadBalanceStrategy == "RoundRobin" then
 		local i = self._currentActorIndex
-		self._currentActorIndex = (i % Settings.ActorAmount) + 1
+		self._currentActorIndex = (i % settings.ActorAmount) + 1
 		return i
 	end
 
 	local best, min = 1, math.huge
-	for i = 1, Settings.ActorAmount do
+	for i = 1, settings.ActorAmount do
 		local workload = self._actorWorkloads[i]
 		if workload < min then
 			min, best = workload, i
@@ -216,6 +266,8 @@ function Caster._actorPayload(self: Caster, id: number, data: ProjectileData)
 		ricochetAngle = config.RichochetAngle,
 		ricochetHardness = config.RichochetHardness,
 		loss = config.Loss,
+		hardness = self._actorHardness,
+		updateRate = self._settings.UpdateRate,
 	}
 end
 
@@ -260,7 +312,7 @@ function Caster._handleActorHits(self: Caster, hits: { any })
 			config.OnImpact:Fire(result, data)
 		end
 
-		if Settings.Visualise then
+		if self._settings.Visualise then
 			Visualiser.VisualiseHit(CFrame.new(h.hitPosition))
 		end
 	end
@@ -365,7 +417,7 @@ function Caster.Cast(
 	direction: Vector3,
 	bullet: BasePart | Pooler | nil
 )
-	if RunService:IsServer() and bullet and Settings.SafeMode then
+	if RunService:IsServer() and bullet and self._settings.SafeMode then
 		warn("It's recommended to replicate bullets on the client!")
 		return
 	end
@@ -418,7 +470,7 @@ end
 
 function Caster.GetWorkloadDistribution(self: Caster): { [number]: number }
 	local distribution = {}
-	for i = 1, Settings.ActorAmount do
+	for i = 1, self._settings.ActorAmount do
 		distribution[i] = self._actorWorkloads[i]
 	end
 	return distribution
@@ -426,7 +478,7 @@ end
 
 function Caster.GetTotalActorBullets(self: Caster): number
 	local total = 0
-	for i = 1, Settings.ActorAmount do
+	for i = 1, self._settings.ActorAmount do
 		total += self._actorWorkloads[i]
 	end
 	return total
@@ -438,7 +490,7 @@ function Caster.SetParallelProcessing(self: Caster, useParallel: boolean)
 	end
 
 	if useParallel then
-		ensureActors()
+		ensureActors(self._settings.ActorAmount)
 		self:_setupActorCommunication()
 
 		for i = #self._activeBullets, 1, -1 do
@@ -484,11 +536,12 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 	local config = data.Config
 	local force = config.ExtraForce or Vector3.zero
 	local lifetime = config.Lifetime or 5
-	local maxStep = 1 / Settings.UpdateRate
+	local settings = self._settings
+	local maxStep = 1 / settings.UpdateRate
 	local params = data.RayParams :: RaycastParams
 
 	-- Rewind tracked targets only on the server, for shots that opted in
-	local useLagComp = IS_SERVER and Settings.LagCompensation and config.LagCompensation and data.RewindTime ~= nil
+	local useLagComp = IS_SERVER and settings.LagCompensation and config.LagCompensation and data.RewindTime ~= nil
 
 	local visFrom = data.CurrentPosition
 	local remaining = math.min(deltaTime, MAX_FRAME)
@@ -555,7 +608,7 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
  		self._newCFrames[index] = CFrame.lookAlong(data.CurrentPosition, facing)
 	end
 
-	if Settings.Visualise and RunService:IsClient() then
+	if settings.Visualise and RunService:IsClient() then
 		Visualiser.VisualiseSegment(CFrame.lookAlong(visFrom, facing), (data.CurrentPosition - visFrom).Magnitude)
 	end
 
@@ -564,7 +617,8 @@ end
 
 function Caster._resolveHit(self: Caster, data: ProjectileData, result: RaycastResult): (string, Math.Decision)
 	local config = data.Config
-	local hardness = Settings.SurfaceHardness[result.Material] or Settings.SurfaceHardness.Default
+	local hardnessTable = self._settings.SurfaceHardness
+	local hardness = hardnessTable[result.Material] or hardnessTable.Default
 	local decision = Math.Resolve(
 		result,
 		data.Velocity,

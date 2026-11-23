@@ -86,9 +86,18 @@ end)
 ## Class
 ### Functions
 
-#### `.new(): class`
+#### `.new(settings: CasterSettings?): class`
 Creates a new caster class \
+**settings**: `CasterSettings?` Overrides for this caster only; anything left out uses the defaults in `Settings.luau`. `SurfaceHardness` entries are merged into the default table, so overriding one material keeps the rest \
 **return:** `class` 
+
+```lua
+local Caster = require(ReplicatedStorage.EnaltCast).new({
+    ParallelProcessing = true,
+    ActorAmount = 8,
+    SurfaceHardness = { [Enum.Material.Metal] = 40 },
+})
+```
 #### `:Cast(config: CastConfig, origin: Vector3, direction: Vector3, bullet: BasePart?)` 
 Starts a new projectile cast \
 **config**: `CastConfig` The configuration of this projectile \

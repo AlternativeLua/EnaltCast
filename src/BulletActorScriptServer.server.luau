@@ -9,7 +9,6 @@ local RunService = game:GetService("RunService")
 
 local actor = script:GetActor() :: Actor
 local module = (script.Parent:WaitForChild("Module") :: ObjectValue).Value :: Instance
-local Settings = require(module:WaitForChild("Settings") :: ModuleScript)
 local Math = require(module:WaitForChild("Math") :: ModuleScript)
 
 local holder = script.Parent.Parent
@@ -17,7 +16,6 @@ local hitEvent = holder:WaitForChild("BulletHit") :: BindableEvent
 local endEvent = holder:WaitForChild("BulletEnd") :: BindableEvent
 
 local MAX_FRAME = 0.1
-local hardnessTable: any = Settings.SurfaceHardness
 local bullets: { [number]: any } = {}
 
 local function endRecord(id: number, b: any, handoff: boolean)
@@ -56,6 +54,8 @@ actor:BindToMessage("CastBullet", function(p)
 		ricochetAngle = p.ricochetAngle,
 		ricochetHardness = p.ricochetHardness,
 		loss = p.loss,
+		hardness = p.hardness, -- keyed by material name (see Caster hardnessByName)
+		maxStep = 1 / p.updateRate,
 	}
 end)
 
@@ -77,10 +77,11 @@ end)
 
 RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 	local updates: { any }?, hits: { any }?, ended: { any }?
-	local maxStep = 1 / Settings.UpdateRate
 
 	for id, b in bullets do
 		local force = b.extraForce
+		local maxStep = b.maxStep
+		local hardnessTable = b.hardness
 		local remaining = math.min(deltaTime, MAX_FRAME)
 		local stop = false
 
@@ -103,7 +104,7 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 				from = result.Position
 				local travelledAtHit = b.travelled
 
-				local hardness = hardnessTable[result.Material] or hardnessTable.Default
+				local hardness = hardnessTable[result.Material.Name] or hardnessTable.Default
 				local decision = Math.Resolve(
 					result, b.velocity, hardness,
 					b.ricochetAngle, b.ricochetHardness, b.penetrationPower, b.loss,

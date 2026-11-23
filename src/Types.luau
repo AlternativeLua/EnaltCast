@@ -1,6 +1,37 @@
 local Zignal = require(script.Parent.Zignal)
 local Pooler = require(script.Parent.Pooler)
 
+-- Per-caster overrides for the defaults in Settings. SurfaceHardness entries are
+-- merged over the default table (keyed by Enum.Material, plus "Default").
+export type CasterSettings = {
+	SurfaceHardness: { [any]: number }?,
+	Visualise: boolean?,
+	SafeMode: boolean?,
+
+	LagCompensation: boolean?,
+	LagCompensationHistory: number?,
+
+	ParallelProcessing: boolean?,
+	LoadBalanceStrategy: ("LeastLoadedActor" | "RoundRobin")?,
+	UpdateRate: number?,
+	ActorAmount: number?,
+}
+
+-- CasterSettings after merging with the defaults: every field is present.
+export type ResolvedSettings = {
+	SurfaceHardness: { [any]: number },
+	Visualise: boolean,
+	SafeMode: boolean,
+
+	LagCompensation: boolean,
+	LagCompensationHistory: number,
+
+	ParallelProcessing: boolean,
+	LoadBalanceStrategy: "LeastLoadedActor" | "RoundRobin",
+	UpdateRate: number,
+	ActorAmount: number,
+}
+
 export type CastConfig = {
 	Speed: number,
 	ExtraForce: Vector3,

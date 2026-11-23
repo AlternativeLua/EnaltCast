@@ -25,6 +25,7 @@ local LagCompensation = {}
 local Tracked: { [Model]: true } = {}
 local History: { Snapshot } = {}
 local Connection: RBXScriptConnection? = nil
+local HistoryLength: number = Settings.LagCompensationHistory
 
 local WorldParams = RaycastParams.new()
 
@@ -49,7 +50,7 @@ local function record()
 
     table.insert(History, { Time = now, Poses = poses })
 
-    local cutoff = now - Settings.LagCompensationHistory
+    local cutoff = now - HistoryLength
     local removeCount = 0
     for i = 1, #History do
         if History[i].Time >= cutoff then break end
@@ -150,6 +151,11 @@ local function rayOBB(origin: Vector3, direction: Vector3, cframe: CFrame, size:
 end
 
 -- Starts tracking a character/rig so it can be rewound. No-op on the client.
+-- History is shared by every caster, so keep enough for the longest one asked for
+function LagCompensation.EnsureHistory(seconds: number)
+    HistoryLength = math.max(HistoryLength, seconds)
+end
+
 function LagCompensation.Register(model: Model)
     if not IS_SERVER then return end
     if Tracked[model] then return end
