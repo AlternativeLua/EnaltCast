@@ -25,6 +25,29 @@ function Math.Displacement(velocity: Vector3, force: Vector3, t: number): Vector
 	return velocity * t + force * (0.5 * t * t)
 end
 
+function Math.Integrate(velocity: Vector3, force: Vector3, drag: number?, wind: Vector3?, step: number): Vector3
+	if drag and drag > 0 then
+		local air = wind or Vector3.zero
+		local relative = velocity - air
+		relative /= 1 + drag * relative.Magnitude * step
+		velocity = air + relative
+	end
+	return velocity + force * step
+end
+
+Math.HARDNESS_ATTRIBUTE = "Hardness"
+function Math.PartHardness(instance: Instance?): number?
+	if not instance then
+		return nil
+	end
+	local value = instance:GetAttribute(Math.HARDNESS_ATTRIBUTE)
+	return if typeof(value) == "number" then value else nil
+end
+
+function Math.UnderLimit(count: number, max: number?): boolean
+	return max == nil or count < max
+end
+
 function Math.CloneRayParams(src: RaycastParams): RaycastParams
 	local p = RaycastParams.new()
 	p.FilterType = src.FilterType

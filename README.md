@@ -79,7 +79,15 @@ end)
 `Lifetime: number?`: How long should the projectile should exist before getting deleted 
 
 `RicochetAngle: number?`: The angle at which the projectile can ricochet \
-`RicochetHardness: number?`: How hard the surface should be to ricochet 
+`RicochetHardness: number?`: How hard the surface should be to ricochet \
+`MaxRicochets: number?`: Ricochets allowed before a glancing hit becomes an impact (unlimited when nil) \
+`MaxPenetrations: number?`: Parts the projectile can pass through before it stops (unlimited when nil)
+
+`Drag: number?`: Air resistance; the projectile slows by `Drag * airspeed²` \
+`Wind: Vector3?`: Air velocity in studs/s. It pushes the projectile through drag, so it needs `Drag` set
+
+Surface hardness comes from the caster's `SurfaceHardness` table by material. A `Hardness` number attribute on a part overrides it for that part. \
+`ProjectileData.DistanceTravelled` holds the distance flown so far (useful for damage falloff), alongside `Ricochets` and `Penetrations` counts.
 
 `OnImpact: Zignal.Signal<RaycastResult, ProjectileData>`: This signal gets fired when the projectile hits something
 

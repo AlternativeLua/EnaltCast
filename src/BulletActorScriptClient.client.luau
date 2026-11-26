@@ -34,6 +34,8 @@ local function endRecord(id: number, b: any, handoff: boolean)
 		time = b.time,
 		travelled = b.travelled,
 		power = b.penetrationPower,
+		ricochets = b.ricochets,
+		penetrations = b.penetrations,
 	}
 end
 
@@ -61,6 +63,12 @@ actor:BindToMessage("CastBullet", function(p)
 		ricochetAngle = p.ricochetAngle,
 		ricochetHardness = p.ricochetHardness,
 		loss = p.loss,
+		drag = p.drag,
+		wind = p.wind,
+		maxRicochets = p.maxRicochets,
+		maxPenetrations = p.maxPenetrations,
+		ricochets = p.ricochets or 0,
+		penetrations = p.penetrations or 0,
 		hardness = p.hardness, -- keyed by material name (see Caster hardnessByName)
 		maxStep = 1 / p.updateRate,
 	}
@@ -106,7 +114,7 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 			local step = math.min(remaining, maxStep)
 			remaining -= step
 			b.time += step
-			b.velocity += force * step
+			b.velocity = Math.Integrate(b.velocity, force, b.drag, b.wind, step)
 
 			local from = b.position
 			local to = from + b.velocity * step
@@ -121,10 +129,15 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 				from = result.Position
 				local travelledAtHit = b.travelled
 
-				local hardness = hardnessTable[result.Material.Name] or hardnessTable.Default
+				local hardness = Math.PartHardness(result.Instance)
+					or hardnessTable[result.Material.Name]
+					or hardnessTable.Default
 				local decision = Math.Resolve(
 					result, b.velocity, hardness,
-					b.ricochetAngle, b.ricochetHardness, b.penetrationPower, b.loss,
+					if Math.UnderLimit(b.ricochets, b.maxRicochets) then b.ricochetAngle else nil,
+					b.ricochetHardness,
+					if Math.UnderLimit(b.penetrations, b.maxPenetrations) then b.penetrationPower else nil,
+					b.loss,
 					b.rayParams
 				)
 				local hitType = decision.Type
@@ -133,12 +146,14 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 					local speed = b.velocity.Magnitude
 					local newVelocity = decision.Velocity :: Vector3
 					local ratio = if speed > 0 then newVelocity.Magnitude / speed else 0
+					b.penetrations += 1
 					b.penetrationPower -= (decision.Cost :: number)
 					b.velocity = newVelocity
 					from = decision.Position :: Vector3
 					b.travelled += (from - result.Position).Magnitude
 					to = Math.ContinueSegment(result.Position, to, from, ratio)
 				elseif hitType == "Ricochet" then
+					b.ricochets += 1
 					b.velocity = (decision.Velocity :: Vector3)
 					b.position = (decision.Position :: Vector3)
 					b.travelled += (b.position - result.Position).Magnitude
@@ -165,6 +180,8 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 					time = b.time,
 					travelled = travelledAtHit,
 					power = b.penetrationPower,
+					ricochets = b.ricochets,
+					penetrations = b.penetrations,
 				})
 
 				if hitType ~= "Penetration" then

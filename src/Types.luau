@@ -54,6 +54,11 @@ export type CastConfig = {
 	RichochetHardness: number?,
 	PenetrationPower: number?,
 	Loss: number?,
+	MaxRicochets: number?,
+	MaxPenetrations: number?,
+
+	Drag: number?,
+	Wind: Vector3?,
 
 	LagCompensation: boolean?,
 	RewindTime: number?, --> client Workspace:GetServerTimeNow() at the shot
@@ -72,6 +77,8 @@ export type ProjectileData = {
 	CurrentDirection: Vector3,
 	Velocity: Vector3,
 	DistanceTravelled: number,
+	Ricochets: number,
+	Penetrations: number,
 	Time: number,
 	RewindTime: number?,
 	IgnoreList: { Instance },

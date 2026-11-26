@@ -65,6 +65,8 @@ local function applyActorState(data: Types.ProjectileData, s: any)
 	data.Time = s.time
 	data.DistanceTravelled = s.travelled
 	data.PenetrationPower = s.power
+	data.Ricochets = s.ricochets
+	data.Penetrations = s.penetrations
 end
 
 local function attachMotor(part: BasePart, cframe: CFrame): Motor6D
@@ -322,6 +324,12 @@ function Caster._actorPayload(self: Caster, id: number, data: ProjectileData)
 		ricochetAngle = config.RichochetAngle,
 		ricochetHardness = config.RichochetHardness,
 		loss = config.Loss,
+		drag = config.Drag,
+		wind = config.Wind,
+		maxRicochets = config.MaxRicochets,
+		maxPenetrations = config.MaxPenetrations,
+		ricochets = data.Ricochets,
+		penetrations = data.Penetrations,
 		hardness = self._actorHardness,
 		updateRate = self._settings.UpdateRate,
 	}
@@ -505,6 +513,8 @@ function Caster.Cast(
 		Direction = direction,
 		Time = 0,
 		DistanceTravelled = 0,
+		Ricochets = 0,
+		Penetrations = 0,
 		RewindTime = config.RewindTime,
 		CurrentPosition = origin,
 		CurrentDirection = direction,
@@ -647,7 +657,7 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 		local step = math.min(remaining, maxStep)
 		remaining -= step
 		data.Time += step
-		data.Velocity += force * step
+		data.Velocity = Math.Integrate(data.Velocity, force, config.Drag, config.Wind, step)
 
 		local from = data.CurrentPosition
 		local to = from + data.Velocity * step
@@ -718,14 +728,16 @@ function Caster._resolveHit(self: Caster, data: ProjectileData, result: RaycastR
 	self._hits += 1
 	local config = data.Config
 	local hardnessTable = self._settings.SurfaceHardness
-	local hardness = hardnessTable[result.Material] or hardnessTable.Default
+	local hardness = Math.PartHardness(result.Instance)
+		or hardnessTable[result.Material]
+		or hardnessTable.Default
 	local decision = Math.Resolve(
 		result,
 		data.Velocity,
 		hardness,
-		config.RichochetAngle,
+		if Math.UnderLimit(data.Ricochets, config.MaxRicochets) then config.RichochetAngle else nil,
 		config.RichochetHardness,
-		data.PenetrationPower,
+		if Math.UnderLimit(data.Penetrations, config.MaxPenetrations) then data.PenetrationPower else nil,
 		config.Loss,
 		data.RayParams :: RaycastParams
 	)
@@ -739,6 +751,7 @@ function Caster._resolveHit(self: Caster, data: ProjectileData, result: RaycastR
 		end
 		return "stop", decision
 	elseif decision.Type == "Ricochet" then
+		data.Ricochets += 1
 		data.Velocity = decision.Velocity :: Vector3
 		data.CurrentPosition = decision.Position :: Vector3
 		data.Origin = decision.Position :: Vector3
@@ -747,6 +760,7 @@ function Caster._resolveHit(self: Caster, data: ProjectileData, result: RaycastR
 		end
 		return "ricochet", decision
 	elseif decision.Type == "Penetration" then
+		data.Penetrations += 1
 		data.PenetrationPower = (data.PenetrationPower :: number) - (decision.Cost :: number)
 		data.Velocity = decision.Velocity :: Vector3
 		if config.OnPenetration then
