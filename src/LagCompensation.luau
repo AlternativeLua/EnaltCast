@@ -11,6 +11,7 @@
 local RunService = game:GetService("RunService")
 
 local Settings = require(script.Parent.Settings)
+local Math = require(script.Parent.Math)
 
 local IS_SERVER = RunService:IsServer()
 local EPSILON = 1e-6
@@ -287,15 +288,16 @@ function LagCompensation.Raycast(
     direction: Vector3,
     params: RaycastParams,
     ignoreList: { Instance },
-    evalTime: number
+    evalTime: number,
+    radius: number?
 ): RaycastResult?
     if not IS_SERVER or next(Tracked) == nil or Count == 0 then
-        return workspace:Raycast(origin, direction, params)
+        return Math.Cast(origin, direction, params, radius)
     end
 
     local now = workspace:GetServerTimeNow()
     if evalTime >= now then
-        return workspace:Raycast(origin, direction, params)
+        return Math.Cast(origin, direction, params, radius)
     end
 
     local lengthSquared = direction:Dot(direction)
@@ -303,10 +305,12 @@ function LagCompensation.Raycast(
     local maxLen = math.sqrt(lengthSquared)
 
     local filter = filterFor(ignoreList, params)
-    local best = workspace:Raycast(origin, direction, filter.Params)
+    local best = Math.Cast(origin, direction, filter.Params, radius)
     local bestT = if best then best.Distance / maxLen else 1
 
     local older, newer, alpha = bracket(evalTime, now)
+    local thickness = radius or 0
+    local inflate = Vector3.one * (thickness * 2)
 
     for model in Tracked do
         if filter.Ignored[model] then continue end
@@ -323,9 +327,9 @@ function LagCompensation.Raycast(
         end
         local radiusA = older.Radii[model]
         local center = if centerB then centerA:Lerp(centerB, alpha) else centerA
-        local radius = math.max(radiusA, radiusB or 0)
+        local bound = math.max(radiusA, radiusB or 0) + thickness
 
-        if not segmentHitsSphere(origin, direction, lengthSquared, center, radius) then continue end
+        if not segmentHitsSphere(origin, direction, lengthSquared, center, bound) then continue end
 
         local posesA = older.Poses
         local posesB = if newer then newer.Poses else nil
@@ -335,12 +339,12 @@ function LagCompensation.Raycast(
             local b = if posesB then posesB[part] else part.CFrame
             local cframe = if b then a:Lerp(b, alpha) else a
 
-            local t, normal = rayOBB(origin, direction, cframe, part.Size)
+            local t, normal = rayOBB(origin, direction, cframe, part.Size + inflate)
             if t and t < bestT and normal then
                 bestT = t
                 best = {
                     Instance = part,
-                    Position = origin + direction * t,
+                    Position = origin + direction * t - normal * thickness,
                     Normal = normal,
                     Distance = maxLen * t,
                     Material = part.Material,

@@ -83,6 +83,7 @@ end)
 `MaxRicochets: number?`: Ricochets allowed before a glancing hit becomes an impact (unlimited when nil) \
 `MaxPenetrations: number?`: Parts the projectile can pass through before it stops (unlimited when nil)
 
+`Radius: number?`: Makes the projectile a sphere of this radius (studs) swept with `workspace:Spherecast`, for rockets and other thick projectiles. Hit signals get the contact point on the surface; the projectile's position stays its centre \
 `Drag: number?`: Air resistance; the projectile slows by `Drag * airspeed²` \
 `Wind: Vector3?`: Air velocity in studs/s. It pushes the projectile through drag, so it needs `Drag` set
 

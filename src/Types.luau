@@ -59,6 +59,7 @@ export type CastConfig = {
 	MaxRicochets: number?,
 	MaxPenetrations: number?,
 
+	Radius: number?,
 	Drag: number?,
 	Wind: Vector3?,
 

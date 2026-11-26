@@ -48,6 +48,23 @@ function Math.UnderLimit(count: number, max: number?): boolean
 	return max == nil or count < max
 end
 
+function Math.Cast(from: Vector3, displacement: Vector3, params: RaycastParams, radius: number?): RaycastResult?
+	if radius then
+		if displacement:Dot(displacement) < 1e-12 then
+			return nil
+		end
+		return workspace:Spherecast(from, radius, displacement, params)
+	end
+	return workspace:Raycast(from, displacement, params)
+end
+
+function Math.HitCenter(from: Vector3, displacement: Vector3, result: RaycastResult, radius: number?): Vector3
+	if radius then
+		return from + displacement.Unit * result.Distance
+	end
+	return result.Position
+end
+
 function Math.CloneRayParams(src: RaycastParams): RaycastParams
 	local p = RaycastParams.new()
 	p.FilterType = src.FilterType
@@ -116,7 +133,8 @@ function Math.Resolve(
 	ricochetHardness: number?,
 	penetrationPower: number?,
 	loss: number?,
-	params: RaycastParams
+	params: RaycastParams,
+	center: Vector3?
 ): Decision
 	local instance = result.Instance
 	local humanoid = instance and findHumanoid(instance)
@@ -124,6 +142,7 @@ function Math.Resolve(
 		return { Type = "Humanoid", Stop = true, Humanoid = humanoid }
 	end
 
+	local shift = if center then center - result.Position else Vector3.zero
 	local speed = velocity.Magnitude
 	local travel = speed > 0 and velocity / speed or -Vector3.zAxis
 	local normal = result.Normal
@@ -139,7 +158,7 @@ function Math.Resolve(
 				Type = "Ricochet",
 				Stop = false,
 				Velocity = reflected,
-				Position = result.Position + normal * SURFACE_OFFSET,
+				Position = result.Position + shift + normal * SURFACE_OFFSET,
 			}
 		end
 	end
@@ -157,7 +176,7 @@ function Math.Resolve(
 					Cost = cost,
 					Velocity = velocity * kept,
 					-- Resume just past the exit so the part never needs filtering out
-					Position = exit + travel * SURFACE_OFFSET,
+					Position = exit + shift + travel * SURFACE_OFFSET,
 				}
 			end
 		end

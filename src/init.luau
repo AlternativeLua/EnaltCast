@@ -405,11 +405,10 @@ function Caster._segment(self: Caster, data: ProjectileData, from: Vector3, to: 
 		local closest = from + segment * along
 		local distance = (point - closest).Magnitude
 		if distance <= radius then
-			if not nearMissed then
-				nearMissed = {}
-				data.NearMissed = nearMissed
-			end
-			nearMissed[player] = true
+			local set = nearMissed or {}
+			set[player] = true
+			nearMissed = set
+			data.NearMissed = set
 			onNearMiss:Fire(player, closest, distance, data)
 		end
 	end
@@ -468,6 +467,7 @@ function Caster._actorPayload(self: Caster, id: number, data: ProjectileData)
 		ricochetAngle = config.RichochetAngle,
 		ricochetHardness = config.RichochetHardness,
 		loss = config.Loss,
+		radius = config.Radius,
 		drag = config.Drag,
 		wind = config.Wind,
 		maxRicochets = config.MaxRicochets,
@@ -852,6 +852,7 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 
 	local visFrom = data.CurrentPosition
 	local tracks = config.OnSegment ~= nil or config.OnNearMiss ~= nil
+	local radius = config.Radius
 	local segmentFrom = visFrom
 	local remaining = math.min(deltaTime, MAX_FRAME) * settings.TimeScale
 	local stop = false
@@ -866,40 +867,42 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 		local to = from + data.Velocity * step
 
 		while true do
+			local displacement = to - from
 			local result
 			if useLagComp then
-				result = LagCompensation.Raycast(from, to - from, params, data.IgnoreList, (data.RewindTime :: number) + data.Time)
+				result = LagCompensation.Raycast(from, displacement, params, data.IgnoreList, (data.RewindTime :: number) + data.Time, radius)
 			else
-				result = workspace:Raycast(from, to - from, params)
+				result = Math.Cast(from, displacement, params, radius)
 			end
 			if not result then
 				break
 			end
 
-			data.DistanceTravelled += (result.Position - from).Magnitude
-			from = result.Position
+			local hit = Math.HitCenter(from, displacement, result, radius)
+			data.DistanceTravelled += (hit - from).Magnitude
+			from = hit
 
 			local speed = data.Velocity.Magnitude
-			local action, decision = self:_resolveHit(data, result)
+			local action, decision = self:_resolveHit(data, result, hit)
 			if data.Ended then
 				return true
 			end
 			if action == "penetration" then
 				local ratio = if speed > 0 then data.Velocity.Magnitude / speed else 0
 				from = decision.Position :: Vector3
-				data.DistanceTravelled += (from - result.Position).Magnitude
-				to = Math.ContinueSegment(result.Position, to, from, ratio)
+				data.DistanceTravelled += (from - hit).Magnitude
+				to = Math.ContinueSegment(hit, to, from, ratio)
 			elseif action == "ricochet" then
 				if tracks then
-					self:_segment(data, segmentFrom, result.Position)
+					self:_segment(data, segmentFrom, hit)
 					segmentFrom = data.CurrentPosition
 				end
-				data.DistanceTravelled += (data.CurrentPosition - result.Position).Magnitude
+				data.DistanceTravelled += (data.CurrentPosition - hit).Magnitude
 				from = data.CurrentPosition
 				to = data.CurrentPosition
 				break
 			else
-				to = result.Position
+				to = hit
 				stop = true
 				break
 			end
@@ -940,7 +943,7 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 	return stop
 end
 
-function Caster._resolveHit(self: Caster, data: ProjectileData, result: RaycastResult): (string, Math.Decision)
+function Caster._resolveHit(self: Caster, data: ProjectileData, result: RaycastResult, center: Vector3): (string, Math.Decision)
 	self._hits += 1
 	local config = data.Config
 	local hardnessTable = self._settings.SurfaceHardness
@@ -955,7 +958,8 @@ function Caster._resolveHit(self: Caster, data: ProjectileData, result: RaycastR
 		config.RichochetHardness,
 		if Math.UnderLimit(data.Penetrations, config.MaxPenetrations) then data.PenetrationPower else nil,
 		config.Loss,
-		data.RayParams :: RaycastParams
+		data.RayParams :: RaycastParams,
+		center
 	)
 
 	if decision.Type == "Humanoid" then

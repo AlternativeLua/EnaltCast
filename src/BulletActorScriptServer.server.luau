@@ -73,6 +73,7 @@ actor:BindToMessage("CastBullet", function(p)
 		penetrations = p.penetrations or 0,
 		paused = p.paused,
 		tracks = p.tracks,
+		radius = p.radius,
 		hardness = p.hardness, -- keyed by material name (see Caster hardnessByName)
 		maxStep = 1 / p.updateRate,
 		timeScale = p.timeScale,
@@ -152,13 +153,15 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 			local to = from + b.velocity * step
 
 			while true do
-				local result = workspace:Raycast(from, to - from, b.rayParams)
+				local displacement = to - from
+				local result = Math.Cast(from, displacement, b.rayParams, b.radius)
 				if not result then
 					break
 				end
 
-				b.travelled += (result.Position - from).Magnitude
-				from = result.Position
+				local hit = Math.HitCenter(from, displacement, result, b.radius)
+				b.travelled += (hit - from).Magnitude
+				from = hit
 				local travelledAtHit = b.travelled
 
 				local hardness = Math.PartHardness(result.Instance)
@@ -170,7 +173,8 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 					b.ricochetHardness,
 					if Math.UnderLimit(b.penetrations, b.maxPenetrations) then b.penetrationPower else nil,
 					b.loss,
-					b.rayParams
+					b.rayParams,
+					hit
 				)
 				local hitType = decision.Type
 
@@ -182,22 +186,22 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 					b.penetrationPower -= (decision.Cost :: number)
 					b.velocity = newVelocity
 					from = decision.Position :: Vector3
-					b.travelled += (from - result.Position).Magnitude
-					to = Math.ContinueSegment(result.Position, to, from, ratio)
+					b.travelled += (from - hit).Magnitude
+					to = Math.ContinueSegment(hit, to, from, ratio)
 				elseif hitType == "Ricochet" then
 					if b.tracks then
 						segments = segments or {}
-						table.insert(segments, { bulletId = id, casterId = b.casterId, from = segmentFrom, to = result.Position })
+						table.insert(segments, { bulletId = id, casterId = b.casterId, from = segmentFrom, to = hit })
 						segmentFrom = decision.Position :: Vector3
 					end
 					b.ricochets += 1
 					b.velocity = (decision.Velocity :: Vector3)
 					b.position = (decision.Position :: Vector3)
-					b.travelled += (b.position - result.Position).Magnitude
+					b.travelled += (b.position - hit).Magnitude
 					from = b.position
 					to = b.position
 				else
-					to = result.Position
+					to = hit
 					stop = true
 				end
 
@@ -208,7 +212,7 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 					type = hitType,
 					humanoid = decision.Humanoid,
 					hitPosition = result.Position,
-					position = decision.Position or result.Position,
+					position = decision.Position or hit,
 					normal = result.Normal,
 					instance = result.Instance,
 					material = result.Material,
