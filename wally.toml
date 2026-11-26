@@ -1,9 +1,9 @@
 [package]
-name = "nametakenbonk/enaltcast"
+name = "alternativelua/enaltcast"
 description = "A fast and easy to use caster"
 license = "MIT"
 authors = ["Alternative", "EnumEnv"]
-version = "0.0.8"
+version = "1.0.0"
 registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
 exclude = ["Packages", "DevPackages", "bench", "bench.project.json", "test", "wally.lock", "sourcemap.json", "test.project.json", "rokit.toml", "aftman.toml"]
@@ -11,6 +11,4 @@ exclude = ["Packages", "DevPackages", "bench", "bench.project.json", "test", "wa
 [dependencies]
 
 [dev-dependencies]
-FastCastRedux = "megamonsta2/fastcastredux@13.2.7"
-FastCast2 = "weenachuangkud/fastcast2@0.1.7"
 SwiftCast = "ddust1n/swiftcast@1.4.1"

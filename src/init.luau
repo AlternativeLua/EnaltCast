@@ -1,10 +1,6 @@
----@diagnostic disable: undefined-doc-name
 --!strict
 --!optimize 2
 --!native
-
--- Original Author: AlternativeFent
--- Editor and Optimiser: EnumEnv
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -41,9 +37,6 @@ local BulletFolder = workspace:FindFirstChild("BulletsFolder") or Instance.new("
 BulletFolder.Name = "BulletsFolder"
 BulletFolder.Parent = workspace
 
--- Client bullets hang off one anchored root through a Motor6D and are moved by
--- writing Motor6D.Transform, which is far cheaper than setting CFrame. Transform
--- doesn't replicate, so server-side bullets keep using BulkMoveTo.
 local MOTOR_NAME = "EnaltCastMotor"
 local BulletRoot: BasePart? = nil
 if not IS_SERVER then
@@ -124,6 +117,15 @@ local function onActorEvents(hits: any, segments: any, ends: any)
 			if caster then
 				local data = caster._actorBullets[segments[i]]
 				if data then
+					if IS_CLIENT and caster._settings.Visualise then
+						local trail = data.VisualTrail
+						if not trail then
+							local created: Visualiser.Trail = {}
+							data.VisualTrail = created
+							trail = created
+						end
+						Visualiser.Extend(trail :: Visualiser.Trail, segments[i + 2], segments[i + 3])
+					end
 					caster:_segment(data, segments[i + 2], segments[i + 3])
 				end
 			end
@@ -595,7 +597,8 @@ function Caster._resolveSpec(self: Caster, config: CastConfig, rayParams: Raycas
 	local wind = config.Wind
 	local maxRicochets = config.MaxRicochets
 	local maxPenetrations = config.MaxPenetrations
-	local tracks = config.OnSegment ~= nil or config.OnNearMiss ~= nil
+	-- Actors only report path segments when something needs them, including the client visualiser
+	local tracks = config.OnSegment ~= nil or config.OnNearMiss ~= nil or (self._settings.Visualise and IS_CLIENT)
 	local filterType = rayParams.FilterType
 	local ignoreWater = rayParams.IgnoreWater
 	local respectCanCollide = rayParams.RespectCanCollide
@@ -739,7 +742,15 @@ function Caster._handleActorHit(self: Caster, hits: { any }, i: number): boolean
 	end
 
 	if self._settings.Visualise then
-		Visualiser.VisualiseHit(CFrame.new(hitPosition))
+		local name: Visualiser.HitKind = if kind == HIT_HUMANOID
+			then "Humanoid"
+			elseif kind == HIT_RICOCHET then "Ricochet"
+			elseif kind == HIT_PENETRATION then "Penetration"
+			else "Impact"
+		Visualiser.Hit(hitPosition, result.Normal, name)
+		if kind == HIT_PENETRATION then
+			Visualiser.Penetration(hitPosition, position)
+		end
 	end
 
 	return kind < HIT_RICOCHET
@@ -757,6 +768,10 @@ function Caster._finishActorBullet(self: Caster, id: number)
 	if data then
 		data.ActorId = nil
 		data.Ended = true
+		local trail = data.VisualTrail
+		if trail then
+			Visualiser.Flush(trail)
+		end
 		releaseBullet(data)
 	end
 end
@@ -1192,8 +1207,17 @@ local function stepProjectile(
 	local direction = data.CurrentDirection
 	local time = data.Time
 	local travelled = data.DistanceTravelled
-	local visFrom = position
 	local segmentFrom = position
+	local speedScale = if visualise and config.Speed > 0 then 1 / config.Speed else 0
+	local trail: Visualiser.Trail? = nil
+	if visualise then
+		trail = data.VisualTrail
+		if not trail then
+			local created: Visualiser.Trail = {}
+			data.VisualTrail = created
+			trail = created
+		end
+	end
 	local remaining = frame
 	local stop = false
 
@@ -1201,15 +1225,21 @@ local function stepProjectile(
 		local step = if remaining < maxStep then remaining else maxStep
 		remaining -= step
 		time += step
-		if drag then
-			local relative = velocity - wind
-			relative /= 1 + drag * relative.Magnitude * step
-			velocity = wind + relative
-		end
-		velocity += force * step
 
 		local from = position
-		local to = from + velocity * step
+		local drawFrom = position
+		local to: Vector3
+		if drag then
+			-- Semi-implicit Euler with implicit quadratic drag relative to the wind
+			local relative = velocity - wind
+			relative /= 1 + drag * relative.Magnitude * step
+			velocity = wind + relative + force * step
+			to = from + velocity * step
+		else
+			-- Exact for constant force, so the path doesn't depend on the step size (frame rate)
+			to = from + velocity * step + force * (0.5 * step * step)
+			velocity += force * step
+		end
 		local displacement = to - from
 		local result: RaycastResult?
 		if useLagComp then
@@ -1233,6 +1263,12 @@ local function stepProjectile(
 				from = hit
 
 				local speed = data.Velocity.Magnitude
+				if trail then
+					-- Pieces always end exactly at a hit
+					Visualiser.Extend(trail, drawFrom, hit, speed * speedScale)
+					Visualiser.Flush(trail)
+					drawFrom = hit
+				end
 				local action, decision = self:_resolveHit(data, result, hit)
 				if data.Ended then
 					return true
@@ -1240,6 +1276,10 @@ local function stepProjectile(
 				if action == "penetration" then
 					local ratio = if speed > 0 then data.Velocity.Magnitude / speed else 0
 					from = decision.Position :: Vector3
+					if trail then
+						Visualiser.Penetration(hit, from)
+						drawFrom = from
+					end
 					data.DistanceTravelled += (from - hit).Magnitude
 					to = Math.ContinueSegment(hit, to, from, ratio)
 					displacement = to - from
@@ -1251,6 +1291,7 @@ local function stepProjectile(
 					end
 					data.DistanceTravelled += (data.CurrentPosition - hit).Magnitude
 					from = data.CurrentPosition
+					drawFrom = from
 					to = from
 					result = nil
 				else
@@ -1265,6 +1306,9 @@ local function stepProjectile(
 			travelled = data.DistanceTravelled
 		end
 
+		if trail then
+			Visualiser.Extend(trail, drawFrom, to, velocity.Magnitude * speedScale)
+		end
 		travelled += (to - from).Magnitude
 		position = to
 		direction = velocity
@@ -1273,6 +1317,10 @@ local function stepProjectile(
 			stop = true
 			break
 		end
+	end
+
+	if stop and trail then
+		Visualiser.Flush(trail)
 	end
 
 	data.Time = time
@@ -1309,20 +1357,15 @@ local function stepProjectile(
 			render = math.floor(lod.Now * rate + phase) ~= math.floor(lod.Previous * rate + phase)
 		end
 	end
-	if visualise or render then
+	if render then
 		local facing = if velocity.Magnitude > 0 then velocity.Unit else FORWARD
-		if render then
-			if motor then
-				motor.Transform = CFrame.lookAlong(position, facing)
-			elseif bullet then
-				local parts = self._bulletParts
-				local n = #parts + 1
-				parts[n] = bullet
-				self._newCFrames[n] = CFrame.lookAlong(position, facing)
-			end
-		end
-		if visualise then
-			Visualiser.VisualiseSegment(CFrame.lookAlong(visFrom, facing), (position - visFrom).Magnitude)
+		if motor then
+			motor.Transform = CFrame.lookAlong(position, facing)
+		elseif bullet then
+			local parts = self._bulletParts
+			local n = #parts + 1
+			parts[n] = bullet
+			self._newCFrames[n] = CFrame.lookAlong(position, facing)
 		end
 	end
 
@@ -1401,6 +1444,10 @@ function Caster._resolveHit(self: Caster, data: ProjectileData, result: RaycastR
 		data.RayParams :: RaycastParams,
 		center
 	)
+
+	if self._settings.Visualise then
+		Visualiser.Hit(result.Position, result.Normal, decision.Type)
+	end
 
 	if decision.Type == "Humanoid" then
 		self:_markHumanoidHit(data, decision.Humanoid :: Humanoid)

@@ -5,8 +5,10 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
+local TestConfig = require(ReplicatedStorage.EnaltCastTest.TestConfig)
+
 local EnaltCast = ReplicatedStorage.Packages.EnaltCast
-local Caster = require(EnaltCast).new()
+local Caster = require(EnaltCast).new({ Visualise = TestConfig.Visualise })
 Caster:SetParallelProcessing(true) -- exercise the actor path while testing
 local LagCompensation = require(EnaltCast.LagCompensation)
 
@@ -61,16 +63,17 @@ Fire.OnServerEvent:Connect(function(player: Player, origin: unknown, direction: 
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = { player.Character :: Instance }
 
+	local shot = TestConfig.Shot
 	Caster:Cast({
-		Speed = 200,
-		ExtraForce = Vector3.new(0, -workspace.Gravity / 5, 0),
+		Speed = shot.Speed,
+		ExtraForce = shot.ExtraForce,
 		RayParams = params,
-		Lifetime = 5,
+		Lifetime = shot.Lifetime,
 		Attributes = {},
 
-		RichochetAngle = 10,
-		RichochetHardness = 9,
-		PenetrationPower = 50,
+		RichochetAngle = shot.RichochetAngle,
+		RichochetHardness = shot.RichochetHardness,
+		PenetrationPower = shot.PenetrationPower,
 
 		LagCompensation = typeof(shotTime) == "number",
 		RewindTime = if typeof(shotTime) == "number" then shotTime else nil,

@@ -303,15 +303,20 @@ return function(actor: Actor, events: BindableEvent)
 				local stepTime = if remaining < maxStep then remaining else maxStep
 				remaining -= stepTime
 				time += stepTime
-				if drag then
-					local relative = velocity - wind
-					relative /= 1 + drag * relative.Magnitude * stepTime
-					velocity = wind + relative
-				end
-				velocity += force * stepTime
 
 				local from = position
-				local to = from + velocity * stepTime
+				local to: Vector3
+				if drag then
+					-- Semi-implicit Euler with implicit quadratic drag relative to the wind
+					local relative = velocity - wind
+					relative /= 1 + drag * relative.Magnitude * stepTime
+					velocity = wind + relative + force * stepTime
+					to = from + velocity * stepTime
+				else
+					-- Exact for constant force, so the path doesn't depend on the step size (frame rate)
+					to = from + velocity * stepTime + force * (0.5 * stepTime * stepTime)
+					velocity += force * stepTime
+				end
 				local displacement = to - from
 				local result: RaycastResult?
 				if radius then

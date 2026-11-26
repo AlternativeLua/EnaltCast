@@ -12,6 +12,9 @@
 			},
 			"EnaltCastTest": {
 				"$className": "Folder",
+				"TestConfig": {
+					"$path": "test/shared/TestConfig.luau"
+				},
 				"Fire": {
 					"$className": "RemoteEvent"
 				},

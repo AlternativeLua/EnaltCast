@@ -6,7 +6,27 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
-local Fire = ReplicatedStorage:WaitForChild("EnaltCastTest"):WaitForChild("Fire") :: RemoteEvent
+local TestFolder = ReplicatedStorage:WaitForChild("EnaltCastTest")
+local Fire = TestFolder:WaitForChild("Fire") :: RemoteEvent
+local TestConfig = require(TestFolder:WaitForChild("TestConfig") :: ModuleScript) :: any
+
+-- Visual-only caster: casts the same shot locally with no bullet part, so the visualiser
+-- can draw paths (it only draws them on the client). The server's cast is authoritative.
+local EnaltCast = (ReplicatedStorage:WaitForChild("Packages") :: Folder):WaitForChild("EnaltCast") :: ModuleScript
+local VisualCaster = if TestConfig.Visualise
+	then (require(EnaltCast) :: any).new({
+		Visualise = true,
+		LagCompensation = false,
+	})
+	else nil
+local VisualSignals = if VisualCaster
+	then {
+		OnImpact = VisualCaster:NewSignal(),
+		OnHumanoidHit = VisualCaster:NewSignal(),
+		OnRichochet = VisualCaster:NewSignal(),
+		OnPenetration = VisualCaster:NewSignal(),
+	}
+	else nil
 
 local FIRE_RATE = 100 -- shots per second while held
 local FIRE_INTERVAL = 1 / FIRE_RATE
@@ -28,6 +48,30 @@ local function fire()
 	local origin = head.Position
 	local direction = (mouse.Hit.Position - origin).Unit
 	Fire:FireServer(origin, direction, workspace:GetServerTimeNow())
+
+	if VisualCaster and VisualSignals then
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { character :: Instance }
+
+		local shot = TestConfig.Shot
+		VisualCaster:Cast({
+			Speed = shot.Speed,
+			ExtraForce = shot.ExtraForce,
+			RayParams = params,
+			Lifetime = shot.Lifetime,
+			Attributes = {},
+
+			RichochetAngle = shot.RichochetAngle,
+			RichochetHardness = shot.RichochetHardness,
+			PenetrationPower = shot.PenetrationPower,
+
+			OnImpact = VisualSignals.OnImpact,
+			OnHumanoidHit = VisualSignals.OnHumanoidHit,
+			OnRichochet = VisualSignals.OnRichochet,
+			OnPenetration = VisualSignals.OnPenetration,
+		} :: any, origin, direction)
+	end
 
 	-- Read by PerfStats for the shots/s readout
 	shots += 1

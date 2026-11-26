@@ -1,5 +1,6 @@
 local Zignal = require(script.Parent.Zignal)
 local Pooler = require(script.Parent.Pooler)
+local Visualiser = require(script.Parent.Visualiser)
 
 export type RenderLODTier = {
 	Distance: number,
@@ -105,6 +106,7 @@ export type ProjectileData = {
 	Motor: Motor6D?, -- client only: drives Bullet via Transform
 	Pooler: Pooler.Pooler?,
 	RenderPhase: number,
+	VisualTrail: Visualiser.Trail?, -- debug path drawing state, only while Visualise is on
 }
 
 local Types = {}
