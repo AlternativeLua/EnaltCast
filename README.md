@@ -19,7 +19,7 @@ Install with [Wally](https://wally.run):
 
 ```toml
 [dependencies]
-EnaltCast = "nametakenbonk/enaltcast@0.0.8"
+EnaltCast = "nametakenbonk/enaltcast@1.0.0"
 ```
 
 Create a caster, then fire bullets with a cast config:
