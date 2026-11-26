@@ -180,6 +180,7 @@ local function resolveSettings(overrides: Types.CasterSettings?): Types.Resolved
 	end
 
 	assert(resolved.UpdateRate > 0, "EnaltCast: UpdateRate must be greater than 0")
+	assert(resolved.TimeScale >= 0, "EnaltCast: TimeScale can't be negative")
 	assert(resolved.ActorAmount >= 1, "EnaltCast: ActorAmount must be at least 1")
 	resolved.ActorAmount = math.floor(resolved.ActorAmount)
 
@@ -399,6 +400,7 @@ function Caster._actorPayload(self: Caster, id: number, data: ProjectileData)
 		penetrations = data.Penetrations,
 		hardness = self._actorHardness,
 		updateRate = self._settings.UpdateRate,
+		timeScale = self._settings.TimeScale,
 	}
 end
 
@@ -684,6 +686,24 @@ function Caster.GetTotalActorBullets(self: Caster): number
 	return total
 end
 
+function Caster.SetTimeScale(self: Caster, scale: number)
+	assert(scale >= 0, "EnaltCast: TimeScale can't be negative")
+	self._settings.TimeScale = scale
+	if not self._commReady then
+		return
+	end
+	for i = 1, self._settings.ActorAmount do
+		local actor = BulletActors[i]
+		if actor then
+			actor:SendMessage("SetTimeScale", self._id, scale)
+		end
+	end
+end
+
+function Caster.GetTimeScale(self: Caster): number
+	return self._settings.TimeScale
+end
+
 function Caster.SetParallelProcessing(self: Caster, useParallel: boolean)
 	if self._useParallel == useParallel then
 		return
@@ -750,7 +770,7 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 	local useLagComp = IS_SERVER and settings.LagCompensation and config.LagCompensation and data.RewindTime ~= nil
 
 	local visFrom = data.CurrentPosition
-	local remaining = math.min(deltaTime, MAX_FRAME)
+	local remaining = math.min(deltaTime, MAX_FRAME) * settings.TimeScale
 	local stop = false
 
 	while remaining > 0 do

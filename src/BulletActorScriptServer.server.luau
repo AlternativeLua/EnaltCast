@@ -73,6 +73,7 @@ actor:BindToMessage("CastBullet", function(p)
 		paused = p.paused,
 		hardness = p.hardness, -- keyed by material name (see Caster hardnessByName)
 		maxStep = 1 / p.updateRate,
+		timeScale = p.timeScale,
 	}
 end)
 
@@ -87,6 +88,14 @@ actor:BindToMessage("SetPaused", function(id: number, paused: boolean)
 	local b = bullets[id]
 	if b then
 		b.paused = paused
+	end
+end)
+
+actor:BindToMessage("SetTimeScale", function(casterId: number, scale: number)
+	for _, b in bullets do
+		if b.casterId == casterId then
+			b.timeScale = scale
+		end
 	end
 end)
 
@@ -127,7 +136,7 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 		local force = b.extraForce
 		local maxStep = b.maxStep
 		local hardnessTable = b.hardness
-		local remaining = math.min(deltaTime, MAX_FRAME)
+		local remaining = math.min(deltaTime, MAX_FRAME) * b.timeScale
 		local stop = false
 
 		while remaining > 0 do

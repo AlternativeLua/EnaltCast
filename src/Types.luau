@@ -13,6 +13,7 @@ export type CasterSettings = {
 
 	ParallelProcessing: boolean?,
 	LoadBalanceStrategy: ("LeastLoadedActor" | "RoundRobin")?,
+	TimeScale: number?,
 	UpdateRate: number?,
 	ActorAmount: number?,
 }
@@ -28,6 +29,7 @@ export type ResolvedSettings = {
 
 	ParallelProcessing: boolean,
 	LoadBalanceStrategy: "LeastLoadedActor" | "RoundRobin",
+	TimeScale: number,
 	UpdateRate: number,
 	ActorAmount: number,
 }

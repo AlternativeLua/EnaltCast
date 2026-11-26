@@ -106,6 +106,9 @@ local Caster = require(ReplicatedStorage.EnaltCast).new({
     SurfaceHardness = { [Enum.Material.Metal] = 40 },
 })
 ```
+#### `:SetTimeScale(scale: number)` / `:GetTimeScale(): number`
+Speeds up or slows down every projectile from this caster, including ones already in flight. `1` is normal speed, `0.25` is quarter speed, `0` freezes them. Can also be set up front with the `TimeScale` setting. `Lifetime` is counted in scaled time, so slowed projectiles live longer in real time
+
 #### `:Cast(config: CastConfig, origin: Vector3, direction: Vector3, bullet: BasePart?)` 
 Starts a new projectile cast \
 **config**: `CastConfig` The configuration of this projectile \

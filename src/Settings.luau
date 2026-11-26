@@ -12,6 +12,7 @@ return {
 	LagCompensationHistory = 1, --> seconds of position history retained for rewinding
 
 	LoadBalanceStrategy = "LeastLoadedActor", --> "RoundRobin", "LeastLoadedActor"
+	TimeScale = 1,
 	UpdateRate = 60, --> max physics sub-steps per second (frame-rate independent)
 	ActorAmount = 12,
 }
