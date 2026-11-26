@@ -69,6 +69,9 @@ export type CastConfig = {
 	OnPenetration: Zignal.Signal<RaycastResult, ProjectileData>,
 	OnRichochet: Zignal.Signal<RaycastResult, ProjectileData>,
 	OnHumanoidHit: Zignal.Signal<RaycastResult, ProjectileData, Humanoid>,
+	OnSegment: Zignal.Signal<Vector3, Vector3, ProjectileData>?,
+	OnNearMiss: Zignal.Signal<Player, Vector3, number, ProjectileData>?,
+	NearMissRadius: number?,
 }
 
 export type ProjectileData = {
@@ -84,6 +87,7 @@ export type ProjectileData = {
 	Time: number,
 	Paused: boolean,
 	Ended: boolean,
+	NearMissed: { [Player]: true }?,
 	ActorId: number?,
 	RewindTime: number?,
 	IgnoreList: { Instance },

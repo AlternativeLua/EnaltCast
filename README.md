@@ -89,7 +89,10 @@ end)
 Surface hardness comes from the caster's `SurfaceHardness` table by material. A `Hardness` number attribute on a part overrides it for that part. \
 `ProjectileData.DistanceTravelled` holds the distance flown so far (useful for damage falloff), alongside `Ricochets` and `Penetrations` counts.
 
-`OnImpact: Zignal.Signal<RaycastResult, ProjectileData>`: This signal gets fired when the projectile hits something
+`OnImpact: Zignal.Signal<RaycastResult, ProjectileData>`: This signal gets fired when the projectile hits something \
+`OnSegment: Zignal.Signal<Vector3, Vector3, ProjectileData>?`: Fires every frame with the stretch the projectile just flew (from, to), split at ricochets. Use it for tracers and whiz sounds \
+`OnNearMiss: Zignal.Signal<Player, Vector3, number, ProjectileData>?`: Fires once per player when the projectile passes within `NearMissRadius` of their head, with the closest point and distance. Players the projectile hits, and characters in the ignore list, are skipped \
+`NearMissRadius: number?`: Radius for `OnNearMiss` in studs (default 10)
 
 ## Class
 ### Functions

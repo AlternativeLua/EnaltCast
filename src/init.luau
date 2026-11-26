@@ -5,6 +5,7 @@
 -- Original Author: AlternativeFent
 -- Editor and Optimiser: EnumEnv
 
+local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local SharedTableRegistry = game:GetService("SharedTableRegistry")
 
@@ -51,6 +52,8 @@ local ActorHolder: Folder? = nil
 local ActorTemplate: Instance? = nil
 local CommHit: BindableEvent
 local CommEnd: BindableEvent
+local CommSegment: BindableEvent
+local DEFAULT_NEAR_MISS_RADIUS = 10
 
 local NextBulletId = 0
 local NextCasterId = 0
@@ -134,6 +137,10 @@ local function ensureActors(count: number)
 		CommEnd = Instance.new("BindableEvent")
 		CommEnd.Name = "BulletEnd"
 		CommEnd.Parent = holder
+
+		CommSegment = Instance.new("BindableEvent")
+		CommSegment.Name = "BulletSegment"
+		CommSegment.Parent = holder
 
 		holder.Parent = container
 		ActorHolder = holder
@@ -348,6 +355,76 @@ function Caster._setupActorCommunication(self: Caster)
 			self:_handleActorEnds(ids)
 		end)
 	)
+	table.insert(
+		self._connections,
+		CommSegment.Event:Connect(function(segments)
+			self:_handleActorSegments(segments)
+		end)
+	)
+end
+
+function Caster._handleActorSegments(self: Caster, segments: { any })
+	for _, s in segments do
+		if s.casterId ~= self._id then
+			continue
+		end
+		local data = self._actorBullets[s.bulletId]
+		if data then
+			self:_segment(data, s.from, s.to)
+		end
+	end
+end
+
+function Caster._segment(self: Caster, data: ProjectileData, from: Vector3, to: Vector3)
+	local config = data.Config
+	if config.OnSegment then
+		config.OnSegment:Fire(from, to, data)
+	end
+	local onNearMiss = config.OnNearMiss
+	if not onNearMiss then
+		return
+	end
+
+	local radius = config.NearMissRadius or DEFAULT_NEAR_MISS_RADIUS
+	local segment = to - from
+	local lengthSquared = segment:Dot(segment)
+	local nearMissed = data.NearMissed
+
+	for _, player in Players:GetPlayers() do
+		if nearMissed and nearMissed[player] then
+			continue
+		end
+		local character = player.Character
+		if not character or table.find(data.IgnoreList, character) then
+			continue
+		end
+		local head = character:FindFirstChild("Head")
+		local point = if head and head:IsA("BasePart") then head.Position else character:GetPivot().Position
+
+		local along = if lengthSquared > 0 then math.clamp((point - from):Dot(segment) / lengthSquared, 0, 1) else 0
+		local closest = from + segment * along
+		local distance = (point - closest).Magnitude
+		if distance <= radius then
+			if not nearMissed then
+				nearMissed = {}
+				data.NearMissed = nearMissed
+			end
+			nearMissed[player] = true
+			onNearMiss:Fire(player, closest, distance, data)
+		end
+	end
+end
+
+function Caster._markHumanoidHit(self: Caster, data: ProjectileData, humanoid: Humanoid)
+	if not data.Config.OnNearMiss then
+		return
+	end
+	local player = humanoid.Parent and Players:GetPlayerFromCharacter(humanoid.Parent)
+	if player then
+		local nearMissed = data.NearMissed or {}
+		nearMissed[player] = true
+		data.NearMissed = nearMissed
+	end
 end
 
 function Caster._pickActor(self: Caster): number
@@ -398,6 +475,7 @@ function Caster._actorPayload(self: Caster, id: number, data: ProjectileData)
 		ricochets = data.Ricochets,
 		paused = data.Paused,
 		penetrations = data.Penetrations,
+		tracks = config.OnSegment ~= nil or config.OnNearMiss ~= nil,
 		hardness = self._actorHardness,
 		updateRate = self._settings.UpdateRate,
 		timeScale = self._settings.TimeScale,
@@ -427,6 +505,7 @@ function Caster._handleActorHits(self: Caster, hits: { any })
 		applyActorState(data, h)
 
 		if h.type == "Humanoid" then
+			self:_markHumanoidHit(data, h.humanoid)
 			if config.OnHumanoidHit then
 				config.OnHumanoidHit:Fire(result, data, h.humanoid)
 			end
@@ -772,6 +851,8 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 	local useLagComp = IS_SERVER and settings.LagCompensation and config.LagCompensation and data.RewindTime ~= nil
 
 	local visFrom = data.CurrentPosition
+	local tracks = config.OnSegment ~= nil or config.OnNearMiss ~= nil
+	local segmentFrom = visFrom
 	local remaining = math.min(deltaTime, MAX_FRAME) * settings.TimeScale
 	local stop = false
 
@@ -809,6 +890,10 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 				data.DistanceTravelled += (from - result.Position).Magnitude
 				to = Math.ContinueSegment(result.Position, to, from, ratio)
 			elseif action == "ricochet" then
+				if tracks then
+					self:_segment(data, segmentFrom, result.Position)
+					segmentFrom = data.CurrentPosition
+				end
 				data.DistanceTravelled += (data.CurrentPosition - result.Position).Magnitude
 				from = data.CurrentPosition
 				to = data.CurrentPosition
@@ -827,6 +912,13 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 		if stop or data.Time >= lifetime then
 			stop = true
 			break
+		end
+	end
+
+	if tracks then
+		self:_segment(data, segmentFrom, data.CurrentPosition)
+		if data.Ended then
+			return true
 		end
 	end
 
@@ -867,6 +959,7 @@ function Caster._resolveHit(self: Caster, data: ProjectileData, result: RaycastR
 	)
 
 	if decision.Type == "Humanoid" then
+		self:_markHumanoidHit(data, decision.Humanoid :: Humanoid)
 		if config.OnHumanoidHit then
 			config.OnHumanoidHit:Fire(result, data, decision.Humanoid :: Humanoid)
 		end

@@ -15,6 +15,7 @@ local Math = require(module:WaitForChild("Math") :: ModuleScript)
 local holder = script.Parent.Parent
 local hitEvent = holder:WaitForChild("BulletHit") :: BindableEvent
 local endEvent = holder:WaitForChild("BulletEnd") :: BindableEvent
+local segmentEvent = holder:WaitForChild("BulletSegment") :: BindableEvent
 
 local MAX_FRAME = 0.1
 local bullets: { [number]: any } = {}
@@ -71,6 +72,7 @@ actor:BindToMessage("CastBullet", function(p)
 		ricochets = p.ricochets or 0,
 		penetrations = p.penetrations or 0,
 		paused = p.paused,
+		tracks = p.tracks,
 		hardness = p.hardness, -- keyed by material name (see Caster hardnessByName)
 		maxStep = 1 / p.updateRate,
 		timeScale = p.timeScale,
@@ -127,7 +129,7 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 	reportedIdle = false
 	local started = os.clock()
 
-	local updates: { any }?, hits: { any }?, ended: { any }?
+	local updates: { any }?, hits: { any }?, ended: { any }?, segments: { any }?
 
 	for id, b in bullets do
 		if b.paused then
@@ -138,6 +140,7 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 		local hardnessTable = b.hardness
 		local remaining = math.min(deltaTime, MAX_FRAME) * b.timeScale
 		local stop = false
+		local segmentFrom = b.position
 
 		while remaining > 0 do
 			local step = math.min(remaining, maxStep)
@@ -182,6 +185,11 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 					b.travelled += (from - result.Position).Magnitude
 					to = Math.ContinueSegment(result.Position, to, from, ratio)
 				elseif hitType == "Ricochet" then
+					if b.tracks then
+						segments = segments or {}
+						table.insert(segments, { bulletId = id, casterId = b.casterId, from = segmentFrom, to = result.Position })
+						segmentFrom = decision.Position :: Vector3
+					end
 					b.ricochets += 1
 					b.velocity = (decision.Velocity :: Vector3)
 					b.position = (decision.Position :: Vector3)
@@ -226,6 +234,11 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 			end
 		end
 
+		if b.tracks then
+			segments = segments or {}
+			table.insert(segments, { bulletId = id, casterId = b.casterId, from = segmentFrom, to = b.position })
+		end
+
 		local target = b.motor or b.bullet
 		if target then
 			local v = b.velocity
@@ -247,7 +260,7 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 
 	stepTimes[actorName] = os.clock() - started
 
-	if not (updates or hits or ended) then
+	if not (updates or hits or ended or segments) then
 		return
 	end
 
@@ -265,6 +278,9 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 	end
 	if hits then
 		hitEvent:Fire(hits)
+	end
+	if segments then
+		segmentEvent:Fire(segments)
 	end
 	if ended then
 		endEvent:Fire(ended)
