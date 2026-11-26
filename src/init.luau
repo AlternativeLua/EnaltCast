@@ -626,6 +626,8 @@ function Caster.Cast(
 		Pooler = pooler,
 	}
 
+	(data.RayParams :: RaycastParams).FilterDescendantsInstances = data.IgnoreList
+
 	if self._useParallel then
 		self:_dispatchToActor(data)
 	else
@@ -783,7 +785,6 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 		local to = from + data.Velocity * step
 
 		while true do
-			params.FilterDescendantsInstances = data.IgnoreList
 			local result
 			if useLagComp then
 				result = LagCompensation.Raycast(from, to - from, params, data.IgnoreList, (data.RewindTime :: number) + data.Time)
