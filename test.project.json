@@ -5,7 +5,7 @@
 		"$className": "DataModel",
 		"ReplicatedStorage": {
 			"Packages": {
-				"$path": "Packages",
+				"$className": "Folder",
 				"EnaltCast": {
 					"$path": "default.project.json"
 				}

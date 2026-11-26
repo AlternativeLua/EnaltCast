@@ -111,10 +111,9 @@ Tools are pinned in `rokit.toml` (Rojo + Wally).
 
 ```sh
 rokit install                       # install pinned tools
-wally install                       # fetch dependencies into Packages/
 rojo serve test.project.json        # live-sync the test place into Studio
 ```
 
-The test place puts EnaltCast in `ReplicatedStorage.Packages` next to its dependencies (the same layout Wally gives consumers) and adds a baseplate, a wall, and a test harness in `test/`. Press Play and click to fire; impacts, ricochets, penetrations and humanoid hits print to the output.
+The test place puts EnaltCast in `ReplicatedStorage.Packages` (the same layout Wally gives consumers) and adds a baseplate, a wall, and a test harness in `test/`. Press Play and click to fire; impacts, ricochets, penetrations and humanoid hits print to the output.
 
-For luau-lsp, generate a sourcemap with `rojo sourcemap test.project.json -o sourcemap.json`. `Packages/`, `wally.lock` and `sourcemap.json` are generated and not committed.
+For luau-lsp, generate a sourcemap with `rojo sourcemap test.project.json -o sourcemap.json`. `sourcemap.json` is generated and not committed.
