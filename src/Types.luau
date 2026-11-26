@@ -68,6 +68,7 @@ export type ProjectileData = {
 	PenetrationPower: number?,
 	RayParams: RaycastParams?,
 	Bullet: BasePart?,
+	Motor: Motor6D?, -- client only: drives Bullet via Transform
 	Pooler: Pooler.Pooler?,
 }
 

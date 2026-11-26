@@ -43,6 +43,7 @@ actor:BindToMessage("CastBullet", function(p)
 	bullets[p.bulletId] = {
 		casterId = p.casterId,
 		bullet = p.bullet,
+		motor = p.motor, -- set on the client; Transform doesn't replicate so the server moves CFrame
 		position = p.origin,
 		velocity = p.velocity,
 		extraForce = p.extraForce,
@@ -163,11 +164,12 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 			end
 		end
 
-		if b.bullet then
+		local target = b.motor or b.bullet
+		if target then
 			local v = b.velocity
 			local facing = if v.Magnitude > 0 then v.Unit else -Vector3.zAxis
 			updates = updates or {}
-			table.insert(updates, b.bullet)
+			table.insert(updates, target)
 			table.insert(updates, CFrame.lookAlong(b.position, facing))
 		end
 
@@ -186,7 +188,12 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 
 	if updates then
 		for i = 1, #updates, 2 do
-			(updates[i] :: BasePart).CFrame = updates[i + 1]
+			local target = updates[i]
+			if target:IsA("Motor6D") then
+				target.Transform = updates[i + 1]
+			else
+				(target :: BasePart).CFrame = updates[i + 1]
+			end
 		end
 	end
 	if hits then

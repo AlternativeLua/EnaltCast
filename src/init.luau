@@ -25,6 +25,25 @@ local BulletFolder = workspace:FindFirstChild("BulletsFolder") or Instance.new("
 BulletFolder.Name = "BulletsFolder"
 BulletFolder.Parent = workspace
 
+-- Client bullets hang off one anchored root through a Motor6D and are moved by
+-- writing Motor6D.Transform, which is far cheaper than setting CFrame. Transform
+-- doesn't replicate, so server-side bullets keep using BulkMoveTo.
+local MOTOR_NAME = "EnaltCastMotor"
+local BulletRoot: BasePart? = nil
+if not IS_SERVER then
+	local root = Instance.new("Part")
+	root.Name = "BulletRoot"
+	root.Anchored = true
+	root.CanCollide = false
+	root.CanQuery = false
+	root.CanTouch = false
+	root.Transparency = 1
+	root.Size = Vector3.one
+	root.CFrame = CFrame.identity
+	root.Parent = BulletFolder
+	BulletRoot = root
+end
+
 local BulletActors: { Actor } = {}
 local ActorHolder: Folder? = nil
 local ActorTemplate: Instance? = nil
@@ -43,10 +62,34 @@ local function applyActorState(data: Types.ProjectileData, s: any)
 	data.PenetrationPower = s.power
 end
 
+local function attachMotor(part: BasePart, cframe: CFrame): Motor6D
+	local motor = part:FindFirstChild(MOTOR_NAME) :: Motor6D?
+	if not motor then
+		local newMotor = Instance.new("Motor6D")
+		newMotor.Name = MOTOR_NAME
+		newMotor.Parent = part
+		motor = newMotor
+	end
+	assert(motor)
+
+	motor.Transform = cframe
+	part.Anchored = false
+	motor.Part1 = part
+	motor.Part0 = BulletRoot
+	return motor
+end
+
 local function releaseBullet(data: Types.ProjectileData)
 	local part = data.Bullet
 	if not part then
 		return
+	end
+	local motor = data.Motor
+	if motor then
+		-- Anchor before breaking the joint so the part doesn't drop as a loose physics part
+		part.Anchored = true
+		motor.Part0 = nil
+		data.Motor = nil
 	end
 	if data.Pooler then
 		data.Pooler:Return(part)
@@ -152,8 +195,8 @@ export type Caster = typeof(Caster) & {
 	_actorBullets: { [number]: ProjectileData },
 	_actorWorkloads: { [number]: number },
 	_bulletToActorMap: { [number]: number },
-	_newCFrames: { [number]: CFrame },
-	_bulletParts: { [number]: BasePart},
+	_newCFrames: { CFrame },
+	_bulletParts: { BasePart },
 	_id: number,
 	_settings: ResolvedSettings,
 	_actorHardness: { [string]: number },
@@ -251,6 +294,7 @@ function Caster._actorPayload(self: Caster, id: number, data: ProjectileData)
 		bulletId = id,
 		casterId = self._id,
 		bullet = data.Bullet,
+		motor = data.Motor,
 		origin = data.CurrentPosition,
 		velocity = data.Velocity,
 		extraForce = config.ExtraForce or Vector3.zero,
@@ -428,8 +472,16 @@ function Caster.Cast(
 		bullet = (bullet :: Pooler):Pull()
 	end
 
+	local motor: Motor6D? = nil
 	if bullet then
-		(bullet :: BasePart).Parent = BulletFolder
+		local part = bullet :: BasePart
+		local start = CFrame.lookAlong(origin, direction)
+		if BulletRoot then
+			motor = attachMotor(part, start)
+		else
+			part.CFrame = start
+		end
+		part.Parent = BulletFolder
 	end
 
 	local data: ProjectileData = {
@@ -446,6 +498,7 @@ function Caster.Cast(
 		PenetrationPower = config.PenetrationPower,
 		RayParams = Math.CloneRayParams(config.RayParams),
 		Bullet = bullet :: BasePart?,
+		Motor = motor,
 		Pooler = pooler,
 	}
 
@@ -516,7 +569,7 @@ function Caster._heartbeat(self: Caster, deltaTime: number)
 	local bullets = self._activeBullets
 	for i = #bullets, 1, -1 do
 		local data = bullets[i]
-		if self:_stepProjectile(data, deltaTime, i) then
+		if self:_stepProjectile(data, deltaTime) then
 			releaseBullet(data)
 
 			local n = #bullets
@@ -525,14 +578,16 @@ function Caster._heartbeat(self: Caster, deltaTime: number)
 		end
 	end
 
-	workspace:BulkMoveTo(self._bulletParts, self._newCFrames)
-	self._newCFrames = {}
-	self._bulletParts = {}
+	if #self._bulletParts > 0 then
+		workspace:BulkMoveTo(self._bulletParts, self._newCFrames)
+		table.clear(self._newCFrames)
+		table.clear(self._bulletParts)
+	end
 end
 
 -- Advances a bullet by deltaTime, sub-stepping at UpdateRate so flight and hit
 -- detection stay frame-rate independent while the part still moves every frame.
-function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: number, index: number): boolean
+function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: number): boolean
 	local config = data.Config
 	local force = config.ExtraForce or Vector3.zero
 	local lifetime = config.Lifetime or 5
@@ -603,9 +658,12 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 	local v = data.Velocity
 	local facing = if v.Magnitude > 0 then v.Unit else -Vector3.zAxis
 
-	if data.Bullet then
-		self._bulletParts[index] = data.Bullet
- 		self._newCFrames[index] = CFrame.lookAlong(data.CurrentPosition, facing)
+	local motor = data.Motor
+	if motor then
+		motor.Transform = CFrame.lookAlong(data.CurrentPosition, facing)
+	elseif data.Bullet then
+		table.insert(self._bulletParts, data.Bullet)
+		table.insert(self._newCFrames, CFrame.lookAlong(data.CurrentPosition, facing))
 	end
 
 	if settings.Visualise and RunService:IsClient() then
