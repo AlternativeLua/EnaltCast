@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 -- Shared ballistics. Used by the single-threaded caster and the parallel actors
 -- so penetration/ricochet behave identically in both paths.
 

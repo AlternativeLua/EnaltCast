@@ -1,0 +1,43 @@
+{
+	"name": "EnaltCastBench",
+	"emitLegacyScripts": false,
+	"tree": {
+		"$className": "DataModel",
+		"ReplicatedStorage": {
+			"Packages": {
+				"$className": "Folder",
+				"EnaltCast": {
+					"$path": "default.project.json"
+				}
+			},
+			"DevPackages": {
+				"$path": "DevPackages"
+			}
+		},
+		"ServerScriptService": {
+			"Bench": {
+				"$path": "bench/server"
+			}
+		},
+		"Workspace": {
+			"Baseplate": {
+				"$className": "Part",
+				"$properties": {
+					"Anchored": true,
+					"Size": [512, 20, 512],
+					"Position": [0, -10, 0],
+					"Color": [0.39, 0.37, 0.38]
+				}
+			},
+			"Wall": {
+				"$className": "Part",
+				"$properties": {
+					"Anchored": true,
+					"Size": [400, 300, 4],
+					"Position": [0, 100, -150],
+					"Color": [0.6, 0.6, 0.65]
+				}
+			}
+		}
+	}
+}

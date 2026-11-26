@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 -- Server-side hitbox rewind. Records a short ring buffer of tracked characters'
 -- part CFrames and tests casts against those historical positions, so a moving

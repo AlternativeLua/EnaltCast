@@ -1,6 +1,11 @@
 local Zignal = require(script.Parent.Zignal)
 local Pooler = require(script.Parent.Pooler)
 
+export type RenderLODTier = {
+	Distance: number,
+	Rate: number,
+}
+
 -- Per-caster overrides for the defaults in Settings. SurfaceHardness entries are
 -- merged over the default table (keyed by Enum.Material, plus "Default").
 export type CasterSettings = {
@@ -16,6 +21,7 @@ export type CasterSettings = {
 	TimeScale: number?,
 	UpdateRate: number?,
 	ActorAmount: number?,
+	RenderLOD: ({ RenderLODTier } | false)?,
 }
 
 -- CasterSettings after merging with the defaults: every field is present.
@@ -32,6 +38,7 @@ export type ResolvedSettings = {
 	TimeScale: number,
 	UpdateRate: number,
 	ActorAmount: number,
+	RenderLOD: { RenderLODTier } | false,
 }
 
 export type CasterStats = {
@@ -97,6 +104,7 @@ export type ProjectileData = {
 	Bullet: BasePart?,
 	Motor: Motor6D?, -- client only: drives Bullet via Transform
 	Pooler: Pooler.Pooler?,
+	RenderPhase: number,
 }
 
 local Types = {}

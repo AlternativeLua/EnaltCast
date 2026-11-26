@@ -10,3 +10,6 @@ sourcemap.json
 *.rbxlx.lock
 
 aftman.toml
+
+# Benchmark competitors (wally install)
+DevPackages/

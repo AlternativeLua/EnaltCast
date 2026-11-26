@@ -15,4 +15,10 @@ return {
 	TimeScale = 1,
 	UpdateRate = 60, --> max physics sub-steps per second (frame-rate independent)
 	ActorAmount = 12,
+
+	RenderLOD = {
+		{ Distance = 200, Rate = 30 },
+		{ Distance = 500, Rate = 15 },
+		{ Distance = 1000, Rate = 8 },
+	},
 }
