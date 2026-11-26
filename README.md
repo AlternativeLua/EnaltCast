@@ -111,7 +111,16 @@ Starts a new projectile cast \
 **config**: `CastConfig` The configuration of this projectile \
 **origin**: `Vector3` Where the projectile starts \
 **direction**: `Vector3` The direction where the projectile should go \
-**bullet**: `BasePart?` The visual part of the projectile
+**bullet**: `BasePart?` The visual part of the projectile \
+**return:** `CastHandle?` A handle to control the projectile (nil when SafeMode blocks a server-side bullet)
+
+#### CastHandle
+`:Terminate()`: Ends the projectile now and frees its bullet part. No signals fire \
+`:GetPosition(): Vector3`: The projectile's current position (its last position once it has ended) \
+`:SetVelocity(velocity: Vector3)`: Replaces the projectile's velocity \
+`:Pause()` / `:Resume()`: Freezes the projectile in place, then lets it carry on
+
+Calls on a projectile that has already ended do nothing.
 
 # Development
 

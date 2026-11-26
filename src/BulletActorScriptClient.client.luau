@@ -22,6 +22,7 @@ local bullets: { [number]: any } = {}
 -- Read by Caster:GetStats; a SharedTable so it can be written without synchronising
 local stepTimes = SharedTableRegistry:GetSharedTable("EnaltCastActorStepTime")
 local actorName = actor.Name
+local positions = SharedTableRegistry:GetSharedTable("EnaltCastPositions" .. actorName)
 local reportedIdle = false
 
 local function endRecord(id: number, b: any, handoff: boolean)
@@ -69,9 +70,24 @@ actor:BindToMessage("CastBullet", function(p)
 		maxPenetrations = p.maxPenetrations,
 		ricochets = p.ricochets or 0,
 		penetrations = p.penetrations or 0,
+		paused = p.paused,
 		hardness = p.hardness, -- keyed by material name (see Caster hardnessByName)
 		maxStep = 1 / p.updateRate,
 	}
+end)
+
+actor:BindToMessage("SetVelocity", function(id: number, velocity: Vector3)
+	local b = bullets[id]
+	if b then
+		b.velocity = velocity
+	end
+end)
+
+actor:BindToMessage("SetPaused", function(id: number, paused: boolean)
+	local b = bullets[id]
+	if b then
+		b.paused = paused
+	end
 end)
 
 actor:BindToMessage("Cleanup", function(ids: { number }, handoff: boolean?)
@@ -80,6 +96,7 @@ actor:BindToMessage("Cleanup", function(ids: { number }, handoff: boolean?)
 		local b = bullets[id]
 		if b then
 			bullets[id] = nil
+			positions[id] = nil
 			if handoff then
 				table.insert(handed, endRecord(id, b, true))
 			end
@@ -104,6 +121,9 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 	local updates: { any }?, hits: { any }?, ended: { any }?
 
 	for id, b in bullets do
+		if b.paused then
+			continue
+		end
 		local force = b.extraForce
 		local maxStep = b.maxStep
 		local hardnessTable = b.hardness
@@ -210,6 +230,9 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 			ended = ended or {}
 			table.insert(ended, endRecord(id, b, false))
 			bullets[id] = nil
+			positions[id] = nil
+		else
+			positions[id] = b.position
 		end
 	end
 

@@ -46,6 +46,7 @@ if not IS_SERVER then
 end
 
 local BulletActors: { Actor } = {}
+local ActorPositions: { SharedTable } = {}
 local ActorHolder: Folder? = nil
 local ActorTemplate: Instance? = nil
 local CommHit: BindableEvent
@@ -103,6 +104,8 @@ local function releaseBullet(data: Types.ProjectileData)
 	else
 		part:Destroy()
 	end
+	data.Bullet = nil
+	data.Pooler = nil
 end
 
 -- Actors run their own Script under a non-replicated container (ServerScriptService
@@ -151,6 +154,7 @@ local function ensureActors(count: number)
 
 		actor.Parent = ActorHolder
 		BulletActors[i] = actor
+		ActorPositions[i] = SharedTableRegistry:GetSharedTable("EnaltCastPositions" .. actor.Name)
 	end
 end
 
@@ -197,6 +201,68 @@ type CasterStats = Types.CasterStats
 type CastConfig = Types.CastConfig
 type ProjectileData = Types.ProjectileData
 type Pooler = Pooler.Pooler
+local Handle = {}
+Handle.__index = Handle
+
+export type CastHandle = typeof(setmetatable({} :: {
+	_caster: Caster,
+	_data: ProjectileData,
+}, Handle))
+
+function Handle.Terminate(self: CastHandle)
+	local data = self._data
+	if data.Ended then
+		return
+	end
+	data.Ended = true
+	local id = data.ActorId
+	if id then
+		self._caster:_dropActorBullet(id)
+	end
+	releaseBullet(data)
+end
+
+function Handle.GetPosition(self: CastHandle): Vector3
+	local data = self._data
+	local id = data.ActorId
+	if id then
+		local actorIndex = self._caster._bulletToActorMap[id]
+		local live = actorIndex and ActorPositions[actorIndex][id]
+		if live then
+			return live :: Vector3
+		end
+	end
+	return data.CurrentPosition
+end
+
+function Handle.SetVelocity(self: CastHandle, velocity: Vector3)
+	local data = self._data
+	if data.Ended then
+		return
+	end
+	data.Velocity = velocity
+	data.CurrentDirection = velocity
+	self._caster:_messageActor(data, "SetVelocity", velocity)
+end
+
+function Handle.Pause(self: CastHandle)
+	local data = self._data
+	if data.Ended or data.Paused then
+		return
+	end
+	data.Paused = true
+	self._caster:_messageActor(data, "SetPaused", true)
+end
+
+function Handle.Resume(self: CastHandle)
+	local data = self._data
+	if data.Ended or not data.Paused then
+		return
+	end
+	data.Paused = false
+	self._caster:_messageActor(data, "SetPaused", false)
+end
+
 export type Caster = typeof(Caster) & {
 	_connections: { RBXScriptConnection },
 	_activeBullets: { ProjectileData },
@@ -329,6 +395,7 @@ function Caster._actorPayload(self: Caster, id: number, data: ProjectileData)
 		maxRicochets = config.MaxRicochets,
 		maxPenetrations = config.MaxPenetrations,
 		ricochets = data.Ricochets,
+		paused = data.Paused,
 		penetrations = data.Penetrations,
 		hardness = self._actorHardness,
 		updateRate = self._settings.UpdateRate,
@@ -402,6 +469,7 @@ function Caster._handleActorEnds(self: Caster, ends: { any })
 			continue
 		end
 		applyActorState(data, e)
+		data.ActorId = nil
 
 		if e.handoff then
 			if self._useParallel then
@@ -410,6 +478,7 @@ function Caster._handleActorEnds(self: Caster, ends: { any })
 				table.insert(self._activeBullets, data)
 			end
 		else
+			data.Ended = true
 			releaseBullet(data)
 		end
 	end
@@ -419,12 +488,35 @@ function Caster._dispatchToActor(self: Caster, data: ProjectileData)
 	NextBulletId += 1
 	local id = NextBulletId
 	self._actorBullets[id] = data
+	data.ActorId = id
 
 	local actorIndex = self:_pickActor()
 	self._actorWorkloads[actorIndex] += 1
 	self._bulletToActorMap[id] = actorIndex
 
 	BulletActors[actorIndex]:SendMessage("CastBullet", self:_actorPayload(id, data))
+end
+
+function Caster._dropActorBullet(self: Caster, id: number)
+	local actorIndex = self._bulletToActorMap[id]
+	if actorIndex then
+		self._actorWorkloads[actorIndex] = math.max(0, self._actorWorkloads[actorIndex] - 1)
+		self._bulletToActorMap[id] = nil
+		BulletActors[actorIndex]:SendMessage("Cleanup", { id }, false)
+	end
+	local data = self._actorBullets[id]
+	if data then
+		data.ActorId = nil
+	end
+	self._actorBullets[id] = nil
+end
+
+function Caster._messageActor(self: Caster, data: ProjectileData, message: string, value: any)
+	local id = data.ActorId
+	local actorIndex = id and self._bulletToActorMap[id]
+	if actorIndex then
+		BulletActors[actorIndex]:SendMessage(message, id, value)
+	end
 end
 
 -- With handoff, actors reply with each bullet's live state via the end event.
@@ -455,9 +547,12 @@ function Caster.Destroy(self: Caster)
 	self:_cleanupActorBullets(false)
 
 	for _, data in self._activeBullets do
+		data.Ended = true
 		releaseBullet(data)
 	end
 	for _, data in self._actorBullets do
+		data.Ended = true
+		data.ActorId = nil
 		releaseBullet(data)
 	end
 
@@ -481,10 +576,10 @@ function Caster.Cast(
 	origin: Vector3,
 	direction: Vector3,
 	bullet: BasePart | Pooler | nil
-)
+): CastHandle?
 	if RunService:IsServer() and bullet and self._settings.SafeMode then
 		warn("It's recommended to replicate bullets on the client!")
-		return
+		return nil
 	end
 
 	local pooler: Pooler? = nil
@@ -515,6 +610,8 @@ function Caster.Cast(
 		DistanceTravelled = 0,
 		Ricochets = 0,
 		Penetrations = 0,
+		Paused = false,
+		Ended = false,
 		RewindTime = config.RewindTime,
 		CurrentPosition = origin,
 		CurrentDirection = direction,
@@ -532,6 +629,8 @@ function Caster.Cast(
 	else
 		table.insert(self._activeBullets, data)
 	end
+
+	return setmetatable({ _caster = self, _data = data }, Handle)
 end
 
 function Caster.GetBulletFolderAsync(self: Caster): Folder
@@ -618,7 +717,8 @@ function Caster._heartbeat(self: Caster, deltaTime: number)
 	local bullets = self._activeBullets
 	for i = #bullets, 1, -1 do
 		local data = bullets[i]
-		if self:_stepProjectile(data, deltaTime) then
+		if data.Ended or (not data.Paused and self:_stepProjectile(data, deltaTime)) then
+			data.Ended = true
 			releaseBullet(data)
 
 			local n = #bullets
@@ -679,6 +779,9 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 
 			local speed = data.Velocity.Magnitude
 			local action, decision = self:_resolveHit(data, result)
+			if data.Ended then
+				return true
+			end
 			if action == "penetration" then
 				local ratio = if speed > 0 then data.Velocity.Magnitude / speed else 0
 				from = decision.Position :: Vector3
