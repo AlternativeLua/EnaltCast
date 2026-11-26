@@ -3,6 +3,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local EnaltCast = ReplicatedStorage.Packages.EnaltCast
 local Caster = require(EnaltCast).new()
@@ -79,4 +80,47 @@ Fire.OnServerEvent:Connect(function(player: Player, origin: unknown, direction: 
 		OnRichochet = OnRichochet,
 		OnPenetration = OnPenetration,
 	}, origin, direction.Unit, BulletTemplate:Clone())
+end)
+
+-- Publish caster stats for the client PerfStats overlay. Attributes replicate,
+-- so the client reads them off ReplicatedStorage.EnaltCastTest.
+local STATS_INTERVAL = 0.5
+local statsFolder = ReplicatedStorage.EnaltCastTest
+
+local frames = 0
+local elapsed = 0
+local stepTotal = 0
+local stepWorst = 0
+local lastCasts = 0
+local lastHits = 0
+
+RunService.Heartbeat:Connect(function(deltaTime: number)
+	local stats = Caster:GetStats()
+	local step = stats.StepTime + stats.ActorStepTime
+	frames += 1
+	elapsed += deltaTime
+	stepTotal += step
+	stepWorst = math.max(stepWorst, step)
+
+	if elapsed < STATS_INTERVAL then
+		return
+	end
+
+	local busiest, total = 0, 0
+	for _, count in stats.Workload do
+		busiest = math.max(busiest, count)
+		total += count
+	end
+
+	statsFolder:SetAttribute("ServerFps", frames / elapsed)
+	statsFolder:SetAttribute("Bullets", stats.ActiveBullets + stats.ActorBullets)
+	statsFolder:SetAttribute("CastsPerSecond", (stats.Casts - lastCasts) / elapsed)
+	statsFolder:SetAttribute("HitsPerSecond", (stats.Hits - lastHits) / elapsed)
+	statsFolder:SetAttribute("StepMs", stepTotal / frames * 1000)
+	statsFolder:SetAttribute("StepWorstMs", stepWorst * 1000)
+	statsFolder:SetAttribute("ActorBusiest", busiest)
+	statsFolder:SetAttribute("ActorAverage", if #stats.Workload > 0 then total / #stats.Workload else 0)
+
+	lastCasts, lastHits = stats.Casts, stats.Hits
+	frames, elapsed, stepTotal, stepWorst = 0, 0, 0, 0
 end)

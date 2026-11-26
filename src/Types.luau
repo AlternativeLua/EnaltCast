@@ -32,6 +32,16 @@ export type ResolvedSettings = {
 	ActorAmount: number,
 }
 
+export type CasterStats = {
+	ActiveBullets: number, -- stepped on the main thread
+	ActorBullets: number, -- stepped by actors
+	Casts: number, -- total since the caster was created
+	Hits: number, -- impacts, ricochets, penetrations and humanoid hits, total
+	StepTime: number, -- seconds the main-thread step took last frame
+	ActorStepTime: number, -- seconds of actor compute last frame, summed over this caster's actors
+	Workload: { number }, -- bullets per actor
+}
+
 export type CastConfig = {
 	Speed: number,
 	ExtraForce: Vector3,

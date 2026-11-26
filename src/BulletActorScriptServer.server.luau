@@ -6,6 +6,7 @@ if not script:GetActor() then
 end
 
 local RunService = game:GetService("RunService")
+local SharedTableRegistry = game:GetService("SharedTableRegistry")
 
 local actor = script:GetActor() :: Actor
 local module = (script.Parent:WaitForChild("Module") :: ObjectValue).Value :: Instance
@@ -17,6 +18,11 @@ local endEvent = holder:WaitForChild("BulletEnd") :: BindableEvent
 
 local MAX_FRAME = 0.1
 local bullets: { [number]: any } = {}
+
+-- Read by Caster:GetStats; a SharedTable so it can be written without synchronising
+local stepTimes = SharedTableRegistry:GetSharedTable("EnaltCastActorStepTime")
+local actorName = actor.Name
+local reportedIdle = false
 
 local function endRecord(id: number, b: any, handoff: boolean)
 	return {
@@ -77,6 +83,16 @@ actor:BindToMessage("Cleanup", function(ids: { number }, handoff: boolean?)
 end)
 
 RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
+	if next(bullets) == nil then
+		if not reportedIdle then
+			reportedIdle = true
+			stepTimes[actorName] = 0
+		end
+		return
+	end
+	reportedIdle = false
+	local started = os.clock()
+
 	local updates: { any }?, hits: { any }?, ended: { any }?
 
 	for id, b in bullets do
@@ -179,6 +195,8 @@ RunService.Heartbeat:ConnectParallel(function(deltaTime: number)
 			bullets[id] = nil
 		end
 	end
+
+	stepTimes[actorName] = os.clock() - started
 
 	if not (updates or hits or ended) then
 		return

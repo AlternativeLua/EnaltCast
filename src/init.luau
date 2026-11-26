@@ -6,6 +6,7 @@
 -- Editor and Optimiser: EnumEnv
 
 local RunService = game:GetService("RunService")
+local SharedTableRegistry = game:GetService("SharedTableRegistry")
 
 local Types = require(script.Types)
 local Visualiser = require(script.Visualiser)
@@ -52,6 +53,10 @@ local CommEnd: BindableEvent
 
 local NextBulletId = 0
 local NextCasterId = 0
+
+-- Actors write their per-frame compute time here, keyed by actor name. Shared by
+-- every caster using the same actors.
+local ActorStepTimes = SharedTableRegistry:GetSharedTable("EnaltCastActorStepTime")
 
 local function applyActorState(data: Types.ProjectileData, s: any)
 	data.CurrentPosition = s.position
@@ -186,6 +191,7 @@ end
 
 type CasterSettings = Types.CasterSettings
 type ResolvedSettings = Types.ResolvedSettings
+type CasterStats = Types.CasterStats
 type CastConfig = Types.CastConfig
 type ProjectileData = Types.ProjectileData
 type Pooler = Pooler.Pooler
@@ -203,6 +209,9 @@ export type Caster = typeof(Caster) & {
 	_currentActorIndex: number,
 	_useParallel: boolean,
 	_commReady: boolean,
+	_casts: number,
+	_hits: number,
+	_stepTime: number,
 }
 
 function Caster.new(settings: CasterSettings?): Caster
@@ -228,6 +237,9 @@ function Caster.new(settings: CasterSettings?): Caster
 	self._currentActorIndex = 1
 	self._useParallel = resolved.ParallelProcessing
 	self._commReady = false
+	self._casts = 0
+	self._hits = 0
+	self._stepTime = 0
 
 	for i = 1, resolved.ActorAmount do
 		self._actorWorkloads[i] = 0
@@ -324,6 +336,7 @@ function Caster._handleActorHits(self: Caster, hits: { any })
 		if not data then
 			continue
 		end
+		self._hits += 1
 
 		local config = data.Config
 		local result = {
@@ -484,6 +497,8 @@ function Caster.Cast(
 		part.Parent = BulletFolder
 	end
 
+	self._casts += 1
+
 	local data: ProjectileData = {
 		Config = config,
 		Origin = origin,
@@ -529,6 +544,29 @@ function Caster.GetWorkloadDistribution(self: Caster): { [number]: number }
 	return distribution
 end
 
+--- Performance counters for this caster. Cheap enough to poll every frame.
+function Caster.GetStats(self: Caster): CasterStats
+	local actorStepTime = 0
+	if self._useParallel then
+		for i = 1, self._settings.ActorAmount do
+			local actor = BulletActors[i]
+			if actor then
+				actorStepTime += (ActorStepTimes[actor.Name] :: number?) or 0
+			end
+		end
+	end
+
+	return {
+		ActiveBullets = #self._activeBullets,
+		ActorBullets = self:GetTotalActorBullets(),
+		Casts = self._casts,
+		Hits = self._hits,
+		StepTime = if self._useParallel then 0 else self._stepTime,
+		ActorStepTime = actorStepTime,
+		Workload = self:GetWorkloadDistribution(),
+	}
+end
+
 function Caster.GetTotalActorBullets(self: Caster): number
 	local total = 0
 	for i = 1, self._settings.ActorAmount do
@@ -566,6 +604,7 @@ function Caster._heartbeat(self: Caster, deltaTime: number)
 		return
 	end
 
+	local started = os.clock()
 	local bullets = self._activeBullets
 	for i = #bullets, 1, -1 do
 		local data = bullets[i]
@@ -583,6 +622,8 @@ function Caster._heartbeat(self: Caster, deltaTime: number)
 		table.clear(self._newCFrames)
 		table.clear(self._bulletParts)
 	end
+
+	self._stepTime = os.clock() - started
 end
 
 -- Advances a bullet by deltaTime, sub-stepping at UpdateRate so flight and hit
@@ -674,6 +715,7 @@ function Caster._stepProjectile(self: Caster, data: ProjectileData, deltaTime: n
 end
 
 function Caster._resolveHit(self: Caster, data: ProjectileData, result: RaycastResult): (string, Math.Decision)
+	self._hits += 1
 	local config = data.Config
 	local hardnessTable = self._settings.SurfaceHardness
 	local hardness = hardnessTable[result.Material] or hardnessTable.Default
