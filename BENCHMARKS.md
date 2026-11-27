@@ -1,6 +1,6 @@
 # Benchmarks
 
-EnaltCast (serial and parallel) compared with [SwiftCast](https://wally.run/package/ddust1n/swiftcast) across six projectile workloads.
+EnaltCast (serial and parallel) compared with [SwiftCast](https://wally.run/package/ddust1n/swiftcast) across six non instanced projectile workloads.
 
 ## Summary
 
