@@ -1,6 +1,6 @@
 # EnaltCast
 
-EnaltCast is a projectile module made for all kinds of purposes. It's the most performant library out there greatly beating FastCast and SwiftCast. With also many useful functions and capabilities packed within.
+EnaltCast is a projectile module made for all kinds of purposes. It's the most performant library out there greatly beating FastCast. With also many useful functions and capabilities packed within.
 
 ## Features
 * **Insanely fast**: up to ~2× SwiftCast's FPS at 16,000 bullets alive at once (see [BENCHMARKS.md](BENCHMARKS.md))
