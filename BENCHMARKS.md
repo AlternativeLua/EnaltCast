@@ -48,6 +48,8 @@ Every library gets the same speed, gravity, lifetime, max distance and `RaycastP
 | Short range burst | 1500 | none | 0.25 s | Cost of creating and removing casts |
 | Slow long-lived | 60 | none | 4 s | Per-bullet step cost with a low spawn rate |
 
+**None of these bullets are instanced**
+
 ## Results
 
 ### Open air
